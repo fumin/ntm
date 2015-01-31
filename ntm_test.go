@@ -25,10 +25,10 @@ func TestNTM(t *testing.T) {
 	h1Size := 3
 	numHeads := 2
 	w := NewControllerWs(len(x[0]), len(y[0]), h1Size, numHeads, m)
-	randVal3(w.Wh1r)
-	randVal2(w.Wh1x)
-	randVal2(w.Wyh1)
-	randVal3(w.Wuh1)
+	RandVal3(w.Wh1r)
+	RandVal2(w.Wh1x)
+	RandVal2(w.Wyh1)
+	RandVal3(w.Wuh1)
 	forwardBackward(w, n, x, y)
 
 	l := loss(w, n, x, y)

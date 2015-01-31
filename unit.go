@@ -51,20 +51,20 @@ func clearGrad3(t [][][]Unit) {
 	}
 }
 
-func randVal1(t []Unit) {
+func RandVal1(t []Unit) {
 	for i := 0; i < len(t); i++ {
 		t[i].Val = rand.NormFloat64()
 	}
 }
 
-func randVal2(t [][]Unit) {
+func RandVal2(t [][]Unit) {
 	for i := 0; i < len(t); i++ {
-		randVal1(t[i])
+		RandVal1(t[i])
 	}
 }
 
-func randVal3(t [][][]Unit) {
+func RandVal3(t [][][]Unit) {
 	for i := 0; i < len(t); i++ {
-		randVal2(t[i])
+		RandVal2(t[i])
 	}
 }

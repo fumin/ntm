@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"runtime/pprof"
@@ -10,15 +11,11 @@ import (
 	"github.com/fumin/ntm"
 )
 
-const (
-	vectorSize = 8
-)
-
 var (
 	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 )
 
-func genSeq(size int) ([][]float64, [][]float64) {
+func genSeq(size, vectorSize int) ([][]float64, [][]float64) {
 	data := make([][]float64, size)
 	for i := 0; i < len(data); i++ {
 		data[i] = make([]float64, vectorSize)
@@ -65,18 +62,39 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	m := ntm.NewNTM(vectorSize+2, vectorSize, 128, 20, 100)
+	vectorSize := 8
+	h1Size := 100
+	numHeads := 1
+	n := 128
+	m := 20
+	w := ntm.NewControllerWs(vectorSize+2, vectorSize, h1Size, numHeads, m)
+	// Weights cannot be zero, or else we have division by zero in cosine similarity of content addressing.
+	ntm.RandVal3(w.Wh1r)
+	ntm.RandVal2(w.Wh1x)
+	ntm.RandVal2(w.Wyh1)
+	ntm.RandVal3(w.Wuh1)
 
-	i := 1
-	for {
-		input, output := genSeq(rand.Intn(20) + 1)
-		last := m.Train(input, output)
-		prediction := last.CollectOutputs()
-		bps := ntm.BitsPerSequence(prediction, output)
-		bps = bps / float64(len(output))
-		// if i % 1000 == 0 {
-		log.Printf("i: %d, bits-per-sequence: %f", i, bps)
-		// }
-		break
+	sgd := ntm.NewSGDMomentum(w)
+	alpha := 0.0001
+	momentum := 0.9
+	for i := 1; ; i++ {
+		x, y := genSeq(rand.Intn(20)+1, vectorSize)
+		machines := sgd.Train(x, y, n, alpha, momentum)
+		l := loss(y, machines)
+		if i%1000 == 0 {
+			log.Printf("%d, bits-per-sequence: %f", i, l/float64(len(y)*len(y[0])))
+		}
 	}
+}
+
+func loss(output [][]float64, ms []*ntm.NTM) float64 {
+	var l float64 = 0
+	for t := 0; t < len(output); t++ {
+		for i := 0; i < len(output[t]); i++ {
+			y := output[t][i]
+			p := ms[t].Controller.Y[i].Val
+			l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
+		}
+	}
+	return -l
 }

@@ -206,7 +206,7 @@ func (m *NTM) Backward(y []float64) {
 	m.Controller.Backward()
 }
 
-func forwardBackward(w *ControllerWs, memoryN int, in, out [][]float64) {
+func forwardBackward(w *ControllerWs, memoryN int, in, out [][]float64) []*NTM {
 	numHeads := len(w.Wuh1)
 	n := memoryN
 	m := len(w.Wh1r[0][0])
@@ -244,4 +244,62 @@ func forwardBackward(w *ControllerWs, memoryN int, in, out [][]float64) {
 	for t := len(in) - 1; t >= 0; t-- {
 		machines[t].Backward(out[t])
 	}
+	return machines
+}
+
+type SGDMomentum struct {
+	W *ControllerWs
+
+	Momh1r [][][]float64
+	Momh1x [][]float64
+	Momyh1 [][]float64
+	Momuh1 [][][]float64
+}
+
+func NewSGDMomentum(w *ControllerWs) *SGDMomentum {
+	s := SGDMomentum{
+		W:      w,
+		Momh1r: makeTensor3(len(w.Wh1r), len(w.Wh1r[0]), len(w.Wh1r[0][0])),
+		Momh1x: makeTensor2(len(w.Wh1x), len(w.Wh1x[0])),
+		Momyh1: makeTensor2(len(w.Wyh1), len(w.Wyh1[0])),
+		Momuh1: makeTensor3(len(w.Wuh1), len(w.Wuh1[0]), len(w.Wuh1[0][0])),
+	}
+	return &s
+}
+
+func (s *SGDMomentum) Train(x, y [][]float64, n int, alpha, mt float64) []*NTM {
+	machines := forwardBackward(s.W, n, x, y)
+	for i := 0; i < len(s.W.Wh1r); i++ {
+		for j := 0; j < len(s.W.Wh1r[i]); j++ {
+			for k := 0; k < len(s.W.Wh1r[i][j]); k++ {
+				d := -alpha*s.W.Wh1r[i][j][k].Grad + mt*s.Momh1r[i][j][k]
+				s.W.Wh1r[i][j][k].Val += d
+				s.Momh1r[i][j][k] = d
+			}
+		}
+	}
+	for i := 0; i < len(s.W.Wh1x); i++ {
+		for j := 0; j < len(s.W.Wh1x[i]); j++ {
+			d := -alpha*s.W.Wh1x[i][j].Grad + mt*s.Momh1x[i][j]
+			s.W.Wh1x[i][j].Val += d
+			s.Momh1x[i][j] = d
+		}
+	}
+	for i := 0; i < len(s.W.Wyh1); i++ {
+		for j := 0; j < len(s.W.Wyh1[i]); j++ {
+			d := -alpha*s.W.Wyh1[i][j].Grad + mt*s.Momyh1[i][j]
+			s.W.Wyh1[i][j].Val += d
+			s.Momyh1[i][j] = d
+		}
+	}
+	for i := 0; i < len(s.W.Wuh1); i++ {
+		for j := 0; j < len(s.W.Wuh1[i]); j++ {
+			for k := 0; k < len(s.W.Wuh1[i][j]); k++ {
+				d := -alpha*s.W.Wuh1[i][j][k].Grad + mt*s.Momuh1[i][j][k]
+				s.W.Wuh1[i][j][k].Val += d
+				s.Momuh1[i][j][k] = d
+			}
+		}
+	}
+	return machines
 }
