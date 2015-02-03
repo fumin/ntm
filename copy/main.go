@@ -67,14 +67,14 @@ func main() {
 	numHeads := 1
 	n := 128
 	m := 20
-	w := ntm.NewControllerWs(vectorSize+2, vectorSize, h1Size, numHeads, m)
+	c := ntm.NewEmptyController1(vectorSize+2, vectorSize, h1Size, numHeads, m)
 	// Weights cannot be zero, or else we have division by zero in cosine similarity of content addressing.
-	ntm.RandVal3(w.Wh1r)
-	ntm.RandVal2(w.Wh1x)
-	ntm.RandVal2(w.Wyh1)
-	ntm.RandVal3(w.Wuh1)
+	ntm.RandVal3(c.Wh1r)
+	ntm.RandVal2(c.Wh1x)
+	ntm.RandVal2(c.Wyh1)
+	ntm.RandVal3(c.Wuh1)
 
-	sgd := ntm.NewSGDMomentum(w)
+	sgd := ntm.NewSGDMomentum(c)
 	alpha := 0.0001
 	momentum := 0.9
 	for i := 1; ; i++ {
@@ -92,7 +92,7 @@ func loss(output [][]float64, ms []*ntm.NTM) float64 {
 	for t := 0; t < len(output); t++ {
 		for i := 0; i < len(output[t]); i++ {
 			y := output[t][i]
-			p := ms[t].Controller.Y[i].Val
+			p := ms[t].Controller.Y()[i].Val
 			l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
 		}
 	}
