@@ -22,7 +22,7 @@ func TestCircuit(t *testing.T) {
 	memory := &WrittenMemory{Top: makeTensorUnit2(n, m)}
 	for i := 0; i < len(memory.Top); i++ {
 		for j := 0; j < len(memory.Top[i]); j++ {
-			memory.Top[i][j].Val = rand.NormFloat64()
+			memory.Top[i][j].Val = rand.Float64()
 		}
 	}
 	heads := make([]*Head, 2)
@@ -30,7 +30,7 @@ func TestCircuit(t *testing.T) {
 		heads[i] = NewHead(m)
 		heads[i].Wtm1 = randomRefocus(n)
 		for j := 0; j < len(heads[i].units); j++ {
-			heads[i].units[j].Val = rand.NormFloat64()
+			heads[i].units[j].Val = rand.Float64()
 		}
 	}
 	// We want to check the case where Beta > 0 and Gamma > 1.
@@ -74,10 +74,10 @@ func addressing(heads []*Head, memory [][]Unit) float64 {
 }
 
 func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads [][]float64, newMem [][]float64) {
-	weights = makeTensor2(len(heads), len(memory))
+	weights = MakeTensor2(len(heads), len(memory))
 	for i, h := range heads {
 		// Content-based addressing
-		beta := math.Max(h.Beta().Val, 0)
+		beta := math.Exp(h.Beta().Val)
 		wc := make([]float64, len(memory))
 		var sum float64 = 0
 		for j := 0; j < len(wc); j++ {
@@ -96,10 +96,11 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 
 		// Location-based addressing
 		n := len(weights[i])
-		s := math.Mod(h.S().Val, float64(n))
-		if s < 0 {
-			s += float64(n)
-		}
+		//s := math.Mod(h.S().Val, float64(n))
+		//if s < 0 {
+		//	s += float64(n)
+		//}
+		s := float64(n) * sigmoid(h.S().Val)
 		for j := 0; j < n; j++ {
 			imj := (j + int(s)) % n
 			simj := 1 - (s - math.Floor(s))
@@ -107,7 +108,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		}
 
 		// Refocusing
-		gamma := math.Max(h.Gamma().Val, 1)
+		gamma := math.Log(math.Exp(h.Gamma().Val)+1) + 1
 		sum = 0
 		for j := 0; j < len(weights[i]); j++ {
 			weights[i][j] = math.Pow(weights[i][j], gamma)
@@ -118,7 +119,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		}
 	}
 
-	reads = makeTensor2(len(heads), len(memory[0]))
+	reads = MakeTensor2(len(heads), len(memory[0]))
 	for i, w := range weights {
 		r := reads[i]
 		for j := 0; j < len(r); j++ {
@@ -128,8 +129,8 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		}
 	}
 
-	erase := makeTensor2(len(heads), len(memory[0]))
-	add := makeTensor2(len(heads), len(memory[0]))
+	erase := MakeTensor2(len(heads), len(memory[0]))
+	add := MakeTensor2(len(heads), len(memory[0]))
 	for k := 0; k < len(heads); k++ {
 		eraseVec := heads[k].EraseVector()
 		for i := 0; i < len(erase[k]); i++ {
@@ -140,7 +141,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 			add[k][i] = sigmoid(addVec[i].Val)
 		}
 	}
-	newMem = makeTensor2(len(memory), len(memory[0]))
+	newMem = MakeTensor2(len(memory), len(memory[0]))
 	for i := 0; i < len(newMem); i++ {
 		for j := 0; j < len(newMem[i]); j++ {
 			newMem[i][j] = memory[i][j].Val
@@ -322,7 +323,7 @@ func randomRefocus(n int) *Refocus {
 	w := make([]Unit, n)
 	var sum float64 = 0
 	for i := 0; i < len(w); i++ {
-		w[i].Val = math.Abs(rand.NormFloat64())
+		w[i].Val = math.Abs(rand.Float64())
 		sum += w[i].Val
 	}
 	for i := 0; i < len(w); i++ {

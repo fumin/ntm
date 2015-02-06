@@ -7,93 +7,107 @@ import (
 )
 
 func TestController1(t *testing.T) {
-	times := 3
-	x := makeTensor2(times, 2)
+	times := 10
+	x := MakeTensor2(times, 2)
 	for i := 0; i < len(x); i++ {
 		for j := 0; j < len(x[i]); j++ {
-			x[i][j] = rand.NormFloat64()
+			x[i][j] = rand.Float64()
 		}
 	}
-	y := makeTensor2(times, 2)
+	y := MakeTensor2(times, 2)
 	for i := 0; i < len(y); i++ {
 		for j := 0; j < len(y[i]); j++ {
-			y[i][j] = rand.NormFloat64()
+			y[i][j] = rand.Float64()
 		}
 	}
 	n := 3
 	m := 2
 	h1Size := 3
 	numHeads := 2
-	c := NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, m)
-	RandVal3(c.Wh1r)
-	RandVal2(c.Wh1x)
-	RandVal2(c.Wyh1)
-	RandVal3(c.Wuh1)
-	forwardBackward(c, n, x, y)
+	c := NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, n, m)
+	c.Weights(func(tag string, u *Unit) { u.Val = 2 * rand.Float64() })
+	forwardBackward(c, x, y)
 
-	l := loss(c, n, x, y)
-	checkWyh1(t, c, n, x, y, l)
-	checkWuh1(t, c, n, x, y, l)
-	checkWh1r(t, c, n, x, y, l)
-	checkWh1x(t, c, n, x, y, l)
+	l := loss(c, Controller1Forward, x, y)
+	checkGradients(t, c, Controller1Forward, x, y, l)
 }
 
-func loss(c *Controller1, memoryN int, in, out [][]float64) float64 {
-	m := len(c.Wh1r[0][0])
-	numHeads := len(c.Wh1r[0])
+func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float64, []*Head) {
+	c := c1.(*Controller1)
 	h1Size := len(c.Wh1r)
-
-	// Initialize memory as in the function forwardBackward
-	mem := makeTensorUnit2(memoryN, m)
-	for i := 0; i < len(mem); i++ {
-		for j := 0; j < len(mem[i]); j++ {
-			mem[i][j].Val = 1
+	h1 := make([]float64, h1Size)
+	for i := 0; i < len(h1); i++ {
+		var v float64 = 0
+		for j := 0; j < len(c.Wh1r[i]); j++ {
+			for k := 0; k < len(c.Wh1r[i][j]); k++ {
+				v += c.Wh1r[i][j][k].Val * reads[j][k]
+			}
+		}
+		for j := 0; j < len(c.Wh1x[i]); j++ {
+			v += c.Wh1x[i][j].Val * x[j]
+		}
+		v += c.Wh1b[i].Val
+		h1[i] = sigmoid(v)
+	}
+	prediction := make([]float64, len(c.Wyh1))
+	for i := 0; i < len(prediction); i++ {
+		var v float64 = 0
+		maxJ := len(c.Wyh1[i]) - 1
+		for j := 0; j < maxJ; j++ {
+			v += c.Wyh1[i][j].Val * h1[j]
+		}
+		v += c.Wyh1[i][maxJ].Val
+		prediction[i] = sigmoid(v)
+	}
+	numHeads := len(c.Wh1r[0])
+	m := len(c.Wh1r[0][0])
+	heads := make([]*Head, numHeads)
+	for i := 0; i < len(heads); i++ {
+		heads[i] = NewHead(m)
+		for j := 0; j < len(heads[i].units); j++ {
+			maxK := len(c.Wuh1[i][j]) - 1
+			for k := 0; k < maxK; k++ {
+				heads[i].units[j].Val += c.Wuh1[i][j][k].Val * h1[k]
+			}
+			heads[i].units[j].Val += c.Wuh1[i][j][maxK].Val
 		}
 	}
-	wtm1s := make([]*Refocus, numHeads)
-	for i := 0; i < len(wtm1s); i++ {
-		wtm1s[i] = &Refocus{Top: make([]Unit, memoryN)}
-		wtm1s[i].Top[0].Val = 1
+	return prediction, heads
+}
+
+func loss(c Controller, forward func(Controller, [][]float64, []float64) ([]float64, []*Head), in, out [][]float64) float64 {
+	// Initialize memory as in the function forwardBackward
+	mem := c.Mtm1BiasV().Top
+	wtm1Bs := c.Wtm1BiasV()
+	wtm1s := make([]*Refocus, c.NumHeads())
+	for i := range wtm1s {
+		wtm1s[i] = &Refocus{Top: make([]Unit, c.MemoryN())}
+		var sum float64 = 0
+		for j := range wtm1Bs[i] {
+			wtm1s[i].Top[j].Val = math.Exp(wtm1Bs[i][j].Top.Val)
+			sum += wtm1s[i].Top[j].Val
+		}
+		for j := range wtm1Bs[i] {
+			wtm1s[i].Top[j].Val = wtm1s[i].Top[j].Val / sum
+		}
 	}
-	reads := makeTensor2(numHeads, m)
+	reads := MakeTensor2(c.NumHeads(), c.MemoryM())
 	for i := 0; i < len(reads); i++ {
 		for j := 0; j < len(reads[i]); j++ {
-			reads[i][j] = 1
+			var v float64 = 0
+			for k := 0; k < len(mem); k++ {
+				v += wtm1s[i].Top[k].Val * mem[k][j].Val
+			}
+			reads[i][j] = v
 		}
 	}
 
-	prediction := makeTensor2(len(out), len(out[0]))
+	prediction := make([][]float64, len(out))
+	var heads []*Head
 	for t := 0; t < len(in); t++ {
-		x := in[t]
-		h1 := make([]float64, h1Size)
-		for i := 0; i < len(h1); i++ {
-			var v float64 = 0
-			for j := 0; j < len(c.Wh1r[i]); j++ {
-				for k := 0; k < len(c.Wh1r[i][j]); k++ {
-					v += c.Wh1r[i][j][k].Val * reads[j][k]
-				}
-			}
-			for j := 0; j < len(c.Wh1x[i]); j++ {
-				v += c.Wh1x[i][j].Val * x[j]
-			}
-			h1[i] = sigmoid(v)
-		}
-		for i := 0; i < len(prediction[t]); i++ {
-			var v float64 = 0
-			for j := 0; j < len(c.Wyh1[i]); j++ {
-				v += c.Wyh1[i][j].Val * h1[j]
-			}
-			prediction[t][i] = sigmoid(v)
-		}
-		heads := make([]*Head, numHeads)
+		prediction[t], heads = forward(c, reads, in[t])
 		for i := 0; i < len(heads); i++ {
-			heads[i] = NewHead(m)
 			heads[i].Wtm1 = wtm1s[i]
-			for j := 0; j < len(heads[i].units); j++ {
-				for k := 0; k < len(c.Wuh1[i][j]); k++ {
-					heads[i].units[j].Val += c.Wuh1[i][j][k].Val * h1[k]
-				}
-			}
 		}
 		wsFloat64, readsFloat64, memFloat64 := doAddressing(heads, mem)
 		wtm1s = transformWSFloat64(wsFloat64)
@@ -112,88 +126,22 @@ func loss(c *Controller1, memoryN int, in, out [][]float64) float64 {
 	return -llh
 }
 
-func checkWyh1(t *testing.T, c *Controller1, memoryN int, in, out [][]float64, lx float64) {
-	for i := 0; i < len(c.Wyh1); i++ {
-		for j := 0; j < len(c.Wyh1[i]); j++ {
-			x := c.Wyh1[i][j].Val
-			h := machineEpsilonSqrt * math.Max(math.Abs(x), 1)
-			xph := x + h
-			c.Wyh1[i][j].Val = xph
-			lxph := loss(c, memoryN, in, out)
-			c.Wyh1[i][j].Val = x
-			grad := (lxph - lx) / (xph - x)
+func checkGradients(t *testing.T, c Controller, forward func(Controller, [][]float64, []float64) ([]float64, []*Head), in, out [][]float64, lx float64) {
+	c.Weights(func(tag string, w *Unit) {
+		x := w.Val
+		h := machineEpsilonSqrt * math.Max(math.Abs(x), 1)
+		xph := x + h
+		w.Val = xph
+		lxph := loss(c, forward, in, out)
+		w.Val = x
+		grad := (lxph - lx) / (xph - x)
 
-			if math.IsNaN(grad) || math.Abs(grad-c.Wyh1[i][j].Grad) > 1e-5 {
-				t.Fatalf("wrong Wyh1[%d][%d] gradient expected %f, got %f", i, j, grad, c.Wyh1[i][j].Grad)
-			} else {
-				t.Logf("OK Wyh1[%d][%d] gradient expected %f, got %f", i, j, grad, c.Wyh1[i][j].Grad)
-			}
+		if math.IsNaN(grad) || math.Abs(grad-w.Grad) > 1e-5 {
+			t.Errorf("wrong %s gradient expected %f, got %f", tag, grad, w.Grad)
+		} else {
+			t.Logf("OK %s gradient expected %f, got %f", tag, grad, w.Grad)
 		}
-	}
-}
-
-func checkWuh1(t *testing.T, c *Controller1, memoryN int, in, out [][]float64, lx float64) {
-	for i := 0; i < len(c.Wuh1); i++ {
-		for j := 0; j < len(c.Wuh1[i]); j++ {
-			for k := 0; k < len(c.Wuh1[i][j]); k++ {
-				x := c.Wuh1[i][j][k].Val
-				h := machineEpsilonSqrt * math.Max(math.Abs(x), 1)
-				xph := x + h
-				c.Wuh1[i][j][k].Val = xph
-				lxph := loss(c, memoryN, in, out)
-				c.Wuh1[i][j][k].Val = x
-				grad := (lxph - lx) / (xph - x)
-
-				if math.IsNaN(grad) || math.Abs(grad-c.Wuh1[i][j][k].Grad) > 1e-5 {
-					t.Fatalf("wrong Wuh1[%d][%d][%d] gradient expected %f, got %f", i, j, k, grad, c.Wuh1[i][j][k].Grad)
-				} else {
-					t.Logf("OK Wuh1[%d][%d][%d] gradient expected %f, got %f", i, j, k, grad, c.Wuh1[i][j][k].Grad)
-				}
-			}
-		}
-	}
-}
-
-func checkWh1r(t *testing.T, c *Controller1, memoryN int, in, out [][]float64, lx float64) {
-	for i := 0; i < len(c.Wh1r); i++ {
-		for j := 0; j < len(c.Wh1r[i]); j++ {
-			for k := 0; k < len(c.Wh1r[i][j]); k++ {
-				x := c.Wh1r[i][j][k].Val
-				h := machineEpsilonSqrt * math.Max(math.Abs(x), 1)
-				xph := x + h
-				c.Wh1r[i][j][k].Val = xph
-				lxph := loss(c, memoryN, in, out)
-				c.Wh1r[i][j][k].Val = x
-				grad := (lxph - lx) / (xph - x)
-
-				if math.IsNaN(grad) || math.Abs(grad-c.Wh1r[i][j][k].Grad) > 1e-5 {
-					t.Fatalf("wrong Wh1r[%d][%d][%d] gradient expected %f, got %f", i, j, k, grad, c.Wh1r[i][j][k].Grad)
-				} else {
-					t.Logf("OK Wh1r[%d][%d][%d] gradient expected %f, got %f", i, j, k, grad, c.Wh1r[i][j][k].Grad)
-				}
-			}
-		}
-	}
-}
-
-func checkWh1x(t *testing.T, c *Controller1, memoryN int, in, out [][]float64, lx float64) {
-	for i := 0; i < len(c.Wh1x); i++ {
-		for j := 0; j < len(c.Wh1x[i]); j++ {
-			x := c.Wh1x[i][j].Val
-			h := machineEpsilonSqrt * math.Max(math.Abs(x), 1)
-			xph := x + h
-			c.Wh1x[i][j].Val = xph
-			lxph := loss(c, memoryN, in, out)
-			c.Wh1x[i][j].Val = x
-			grad := (lxph - lx) / (xph - x)
-
-			if math.IsNaN(grad) || math.Abs(grad-c.Wh1x[i][j].Grad) > 1e-5 {
-				t.Fatalf("wrong Wh1x[%d][%d] gradient expected %f, got %f", i, j, grad, c.Wh1x[i][j].Grad)
-			} else {
-				t.Logf("OK Wh1x[%d][%d] gradient expected %f, got %f", i, j, grad, c.Wh1x[i][j].Grad)
-			}
-		}
-	}
+	})
 }
 
 func transformMemFloat64(memFloat64 [][]float64) [][]Unit {

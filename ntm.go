@@ -1,9 +1,9 @@
 package ntm
 
 import (
-//"log"
-//"math"
-//"math/rand"
+	"fmt"
+	"log"
+	"math"
 )
 
 type Head struct {
@@ -61,16 +61,18 @@ type Controller interface {
 	// assuming the gradients on Heads and Y are already set.
 	Backward()
 
-	// Weights returns a channel which emits the internal weights of a controller.
-	// Callers are expected to range the returning channel until it is closed to avoid
-	// leaking goroutines.
-	Weights() chan *Unit
+	// Wtm1BiasV returns the bias values for the memory heads at time t-1.
+	Wtm1BiasV() [][]*BetaSimilarity
+	// Mtm1BiasV returns the bias values for the memory at time t-1.
+	Mtm1BiasV() *WrittenMemory
 
-	// ClearGradients sets the gradients of all internal weights of a controller to zero.
-	ClearGradients()
+	// Weights loops through all internal weights of a controller.
+	// For each weight, Weights calls the callback with a unique tag and a pointer to the weight.
+	Weights(f func(string, *Unit))
 
 	NumWeights() int
 	NumHeads() int
+	MemoryN() int
 	MemoryM() int
 }
 
@@ -85,56 +87,68 @@ func NewNTM(old *NTM, x []float64) *NTM {
 	}
 	for i := 0; i < len(m.Controller.Heads()); i++ {
 		m.Controller.Heads()[i].Wtm1 = old.Circuit.W[i]
+
+		h := m.Controller.Heads()[i]
+		for j, u := range h.units {
+			if math.IsNaN(u.Val) {
+				panic(fmt.Sprintf("%d", j))
+			}
+		}
+
 	}
 	m.Circuit = NewCircuit(m.Controller.Heads(), old.Circuit.WM)
 	return &m
 }
 
-func (m *NTM) Backward(y []float64) {
+func (m *NTM) Backward() {
 	m.Circuit.Backward()
-	for i := 0; i < len(y); i++ {
-		m.Controller.Y()[i].Grad = m.Controller.Y()[i].Val - y[i]
-	}
 	m.Controller.Backward()
 }
 
-func forwardBackward(c Controller, memoryN int, in, out [][]float64) []*NTM {
-	n := memoryN
-	m := c.MemoryM()
-	// Initialize all memories to 1. We cannot initialize to zero since we will
-	// get a divide by zero in the cosine similarity of content addressing.
-	refocuses := make([]*Refocus, c.NumHeads())
-	for i := 0; i < len(refocuses); i++ {
-		refocuses[i] = &Refocus{Top: make([]Unit, n)}
-		refocuses[i].Top[0].Val = 1
-	}
+func forwardBackward(c Controller, in, out [][]float64) []*NTM {
+	wtm1s := make([]*Refocus, c.NumHeads())
 	reads := make([]*Read, c.NumHeads())
-	for i := 0; i < len(reads); i++ {
-		reads[i] = &Read{Top: make([]Unit, m)}
-		for j := 0; j < len(reads[i].Top); j++ {
-			reads[i].Top[j].Val = 1
+	cas := make([]*ContentAddressing, c.NumHeads())
+	for i := range reads {
+		cas[i] = NewContentAddressing(c.Wtm1BiasV()[i])
+		wtm1s[i] = &Refocus{Top: make([]Unit, c.MemoryN())}
+		for j := range wtm1s[i].Top {
+			wtm1s[i].Top[j].Val = cas[i].Top[j].Val
 		}
+		reads[i] = NewRead(wtm1s[i], c.Mtm1BiasV())
 	}
-	mem := &WrittenMemory{Top: makeTensorUnit2(n, m)}
-	for i := 0; i < len(mem.Top); i++ {
-		for j := 0; j < len(mem.Top[i]); j++ {
-			mem.Top[i][j].Val = 1
-		}
-	}
-
 	machines := make([]*NTM, len(in))
 	empty := &NTM{
 		Controller: c,
-		Circuit:    &Circuit{W: refocuses, R: reads, WM: mem},
+		Circuit:    &Circuit{W: wtm1s, R: reads, WM: c.Mtm1BiasV()},
 	}
+
 	machines[0] = NewNTM(empty, in[0])
 	for t := 1; t < len(in); t++ {
 		machines[t] = NewNTM(machines[t-1], in[t])
 	}
-	c.ClearGradients()
+	c.Weights(func(tag string, u *Unit) { u.Grad = 0 })
+	//okt := len(out) - ((len(out)-2) / 2)
 	for t := len(in) - 1; t >= 0; t-- {
-		machines[t].Backward(out[t])
+		m := machines[t]
+
+		//if t >= okt {
+		y := out[t]
+		for i := 0; i < len(y); i++ {
+			m.Controller.Y()[i].Grad = m.Controller.Y()[i].Val - y[i]
+		}
+		//}
+		m.Backward()
 	}
+
+	for i := range reads {
+		reads[i].Backward()
+		for j := range reads[i].W.Top {
+			cas[i].Top[j].Grad += reads[i].W.Top[j].Grad
+		}
+		cas[i].Backward()
+	}
+
 	return machines
 }
 
@@ -151,14 +165,48 @@ func NewSGDMomentum(c Controller) *SGDMomentum {
 	return &s
 }
 
-func (s *SGDMomentum) Train(x, y [][]float64, n int, alpha, mt float64) []*NTM {
-	machines := forwardBackward(s.C, n, x, y)
+func (s *SGDMomentum) Train(x, y [][]float64, alpha, mt float64) []*NTM {
+	machines := forwardBackward(s.C, x, y)
 	i := 0
-	for w := range s.C.Weights() {
+	s.C.Weights(func(tag string, w *Unit) {
 		d := -alpha*w.Grad + mt*s.PrevD[i]
 		w.Val += d
 		s.PrevD[i] = d
 		i++
+	})
+	return machines
+}
+
+type RMSProp struct {
+	C Controller
+	N []float64
+	G []float64
+	D []float64
+}
+
+func NewRMSProp(c Controller) *RMSProp {
+	r := RMSProp{
+		C: c,
+		N: make([]float64, c.NumWeights()),
+		G: make([]float64, c.NumWeights()),
+		D: make([]float64, c.NumWeights()),
 	}
+	return &r
+}
+
+func (r *RMSProp) Train(x, y [][]float64, a, b, c, d float64) []*NTM {
+	machines := forwardBackward(r.C, x, y)
+	i := 0
+	r.C.Weights(func(tag string, w *Unit) {
+		r.N[i] = a*r.N[i] + (1-a)*w.Grad*w.Grad
+		r.G[i] = a*r.G[i] + (1-a)*w.Grad
+		r.D[i] = b*r.D[i] - c*w.Grad/math.Sqrt(r.N[i]-r.G[i]*r.G[i]+d)
+		w.Val += r.D[i]
+		if math.IsNaN(w.Val) {
+			log.Printf("%f %f %f %f", w.Grad, r.N[i], r.G[i], r.D[i])
+			panic("")
+		}
+		i++
+	})
 	return machines
 }

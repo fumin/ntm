@@ -25,7 +25,7 @@ func similarity(u, v []float64) float64 {
 	return sum / math.Sqrt(usum*vsum)
 }
 
-func makeTensor2(n, m int) [][]float64 {
+func MakeTensor2(n, m int) [][]float64 {
 	t := make([][]float64, n)
 	for i := 0; i < len(t); i++ {
 		t[i] = make([]float64, m)
@@ -33,10 +33,10 @@ func makeTensor2(n, m int) [][]float64 {
 	return t
 }
 
-func makeTensor3(n, m, p int) [][][]float64 {
+func MakeTensor3(n, m, p int) [][][]float64 {
 	t := make([][][]float64, n)
 	for i := 0; i < len(t); i++ {
-		t[i] = makeTensor2(m, p)
+		t[i] = MakeTensor2(m, p)
 	}
 	return t
 }

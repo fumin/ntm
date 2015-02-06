@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -62,38 +63,60 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
+	var seed int64 = 4
+	rand.Seed(seed)
+	log.Printf("seed: %d", seed)
+
 	vectorSize := 8
 	h1Size := 100
 	numHeads := 1
 	n := 128
 	m := 20
-	c := ntm.NewEmptyController1(vectorSize+2, vectorSize, h1Size, numHeads, m)
+	c := ntm.NewEmptyController1(vectorSize+2, vectorSize, h1Size, numHeads, n, m)
 	// Weights cannot be zero, or else we have division by zero in cosine similarity of content addressing.
-	ntm.RandVal3(c.Wh1r)
-	ntm.RandVal2(c.Wh1x)
-	ntm.RandVal2(c.Wyh1)
-	ntm.RandVal3(c.Wuh1)
+	c.Weights(func(tag string, u *ntm.Unit) { u.Val = 1 * (rand.Float64() - 0.5) })
 
-	sgd := ntm.NewSGDMomentum(c)
-	alpha := 0.0001
-	momentum := 0.9
+	//sgd := ntm.NewSGDMomentum(c)
+	rmsp := ntm.NewRMSProp(c)
+	log.Printf("numweights: %d", c.NumWeights())
 	for i := 1; ; i++ {
-		x, y := genSeq(rand.Intn(20)+1, vectorSize)
-		machines := sgd.Train(x, y, n, alpha, momentum)
+		x, y := genSeq(rand.Intn(3)+2, vectorSize)
+		//machines := sgd.Train(x, y, 1e-4, 0.9)
+		machines := rmsp.Train(x, y, 0.95, 0.5, 1e-3, 1e-3)
 		l := loss(y, machines)
 		if i%1000 == 0 {
-			log.Printf("%d, bits-per-sequence: %f", i, l/float64(len(y)*len(y[0])))
+			log.Printf("%d, bits-per-sequence: %f, seq length: %d", i, l/float64(len(y)*len(y[0])), len(y))
 		}
+
+		if i%1000 == 0 {
+			log.Printf("y: %+v", y)
+			pred := "prediction: "
+			for t := range y {
+				mymy := machines[t].Controller.Y()
+				pred += "["
+				for i := range y[t] {
+					pred = fmt.Sprintf("%s %.2f", pred, mymy[i].Val)
+				}
+				pred += "]"
+			}
+			log.Printf(pred)
+			h := machines[len(y)-3].Controller.Heads()[0]
+			log.Printf("beta: %f, g: %f, s: %f, gamma: %f, erase: %+v, add: %+v, k: %+v", h.Beta(), h.G(), h.S(), h.Gamma(), h.EraseVector(), h.AddVector(), h.K())
+		}
+
 	}
 }
 
 func loss(output [][]float64, ms []*ntm.NTM) float64 {
 	var l float64 = 0
+	okt := len(output) - ((len(output) - 2) / 2)
 	for t := 0; t < len(output); t++ {
 		for i := 0; i < len(output[t]); i++ {
 			y := output[t][i]
 			p := ms[t].Controller.Y()[i].Val
-			l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
+			if t >= okt {
+				l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
+			}
 		}
 	}
 	return -l
