@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -63,7 +62,7 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	var seed int64 = 4
+	var seed int64 = 2
 	rand.Seed(seed)
 	log.Printf("seed: %d", seed)
 
@@ -74,7 +73,7 @@ func main() {
 	m := 20
 	c := ntm.NewEmptyController1(vectorSize+2, vectorSize, h1Size, numHeads, n, m)
 	// Weights cannot be zero, or else we have division by zero in cosine similarity of content addressing.
-	c.Weights(func(tag string, u *ntm.Unit) { u.Val = 1 * (rand.Float64() - 0.5) })
+	c.Weights(func(u *ntm.Unit) { u.Val = 1 * (rand.Float64() - 0.5) })
 
 	//sgd := ntm.NewSGDMomentum(c)
 	rmsp := ntm.NewRMSProp(c)
@@ -89,19 +88,19 @@ func main() {
 		}
 
 		if i%1000 == 0 {
-			log.Printf("y: %+v", y)
-			pred := "prediction: "
-			for t := range y {
-				mymy := machines[t].Controller.Y()
-				pred += "["
-				for i := range y[t] {
-					pred = fmt.Sprintf("%s %.2f", pred, mymy[i].Val)
-				}
-				pred += "]"
-			}
-			log.Printf(pred)
-			h := machines[len(y)-3].Controller.Heads()[0]
-			log.Printf("beta: %f, g: %f, s: %f, gamma: %f, erase: %+v, add: %+v, k: %+v", h.Beta(), h.G(), h.S(), h.Gamma(), h.EraseVector(), h.AddVector(), h.K())
+			//log.Printf("y: %+v", y)
+			//pred := "prediction: "
+			//for t := range y {
+			//	mymy := machines[t].Controller.Y()
+			//	pred += "["
+			//	for i := range y[t] {
+			//		pred = fmt.Sprintf("%s %.2f", pred, mymy[i].Val)
+			//	}
+			//	pred += "]"
+			//}
+			//log.Printf(pred)
+			//h := machines[len(y)-3].Controller.Heads()[0]
+			//log.Printf("beta: %f, g: %f, s: %f, gamma: %f, erase: %+v, add: %+v, k: %+v", h.Beta(), h.G(), h.S(), h.Gamma(), h.EraseVector(), h.AddVector(), h.K())
 		}
 
 	}

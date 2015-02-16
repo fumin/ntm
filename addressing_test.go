@@ -89,7 +89,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		}
 
 		// Content-based, location-based addressing gate
-		g := sigmoid(h.G().Val)
+		g := Sigmoid(h.G().Val)
 		for j := 0; j < len(wc); j++ {
 			wc[j] = g*wc[j] + (1-g)*h.Wtm1.Top[j].Val
 		}
@@ -100,7 +100,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		//if s < 0 {
 		//	s += float64(n)
 		//}
-		s := float64(n) * sigmoid(h.S().Val)
+		s := float64(n) * Sigmoid(h.S().Val)
 		for j := 0; j < n; j++ {
 			imj := (j + int(s)) % n
 			simj := 1 - (s - math.Floor(s))
@@ -134,11 +134,11 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 	for k := 0; k < len(heads); k++ {
 		eraseVec := heads[k].EraseVector()
 		for i := 0; i < len(erase[k]); i++ {
-			erase[k][i] = sigmoid(eraseVec[i].Val)
+			erase[k][i] = Sigmoid(eraseVec[i].Val)
 		}
 		addVec := heads[k].AddVector()
 		for i := 0; i < len(add[k]); i++ {
-			add[k][i] = sigmoid(addVec[i].Val)
+			add[k][i] = Sigmoid(addVec[i].Val)
 		}
 	}
 	newMem = MakeTensor2(len(memory), len(memory[0]))

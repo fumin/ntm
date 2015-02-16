@@ -9,7 +9,7 @@ const (
 	machineEpsilonSqrt = 1e-8 // math.Sqrt(machineEpsilon)
 )
 
-func sigmoid(x float64) float64 {
+func Sigmoid(x float64) float64 {
 	return 1.0 / (1 + math.Exp(-x))
 }
 

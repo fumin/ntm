@@ -68,7 +68,8 @@ type Controller interface {
 
 	// Weights loops through all internal weights of a controller.
 	// For each weight, Weights calls the callback with a unique tag and a pointer to the weight.
-	Weights(f func(string, *Unit))
+	Weights(f func(*Unit))
+	WeightsVerbose(f func(string, *Unit))
 
 	NumWeights() int
 	NumHeads() int
@@ -127,7 +128,7 @@ func forwardBackward(c Controller, in, out [][]float64) []*NTM {
 	for t := 1; t < len(in); t++ {
 		machines[t] = NewNTM(machines[t-1], in[t])
 	}
-	c.Weights(func(tag string, u *Unit) { u.Grad = 0 })
+	c.Weights(func(u *Unit) { u.Grad = 0 })
 	//okt := len(out) - ((len(out)-2) / 2)
 	for t := len(in) - 1; t >= 0; t-- {
 		m := machines[t]
@@ -168,7 +169,7 @@ func NewSGDMomentum(c Controller) *SGDMomentum {
 func (s *SGDMomentum) Train(x, y [][]float64, alpha, mt float64) []*NTM {
 	machines := forwardBackward(s.C, x, y)
 	i := 0
-	s.C.Weights(func(tag string, w *Unit) {
+	s.C.Weights(func(w *Unit) {
 		d := -alpha*w.Grad + mt*s.PrevD[i]
 		w.Val += d
 		s.PrevD[i] = d
@@ -197,7 +198,7 @@ func NewRMSProp(c Controller) *RMSProp {
 func (r *RMSProp) Train(x, y [][]float64, a, b, c, d float64) []*NTM {
 	machines := forwardBackward(r.C, x, y)
 	i := 0
-	r.C.Weights(func(tag string, w *Unit) {
+	r.C.Weights(func(w *Unit) {
 		r.N[i] = a*r.N[i] + (1-a)*w.Grad*w.Grad
 		r.G[i] = a*r.G[i] + (1-a)*w.Grad
 		r.D[i] = b*r.D[i] - c*w.Grad/math.Sqrt(r.N[i]-r.G[i]*r.G[i]+d)

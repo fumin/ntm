@@ -68,37 +68,42 @@ func (old *Controller1) Forward(reads []*Read, x []float64) Controller {
 		heads:      make([]*Head, len(reads)),
 	}
 
-	for i := 0; i < len(c.H1); i++ {
-		var v float64 = 0
-		for j := 0; j < len(reads); j++ {
-			for k := 0; k < len(reads[j].Top); k++ {
-				v += c.Wh1r[i][j][k].Val * reads[j].Top[k].Val
+	var v float64
+	for i, wh1ri := range c.Wh1r {
+		wh1xi := c.Wh1x[i]
+		v = 0
+		for j, wh1rij := range wh1ri {
+			read := reads[j]
+			for k, wh1rijk := range wh1rij {
+				v += wh1rijk.Val * read.Top[k].Val
 			}
 		}
-		for j := 0; j < len(x); j++ {
-			v += c.Wh1x[i][j].Val * x[j]
+		for j, wh1xij := range wh1xi {
+			v += wh1xij.Val * x[j]
 		}
 		v += c.Wh1b[i].Val
-		c.H1[i].Val = sigmoid(v)
+		c.H1[i].Val = Sigmoid(v)
 	}
 
-	for i := 0; i < len(c.y); i++ {
-		var v float64 = 0
-		for j := 0; j < len(c.H1); j++ {
-			v += c.Wyh1[i][j].Val * c.H1[j].Val
+	for i, wyh1i := range c.Wyh1 {
+		v = 0
+		for j, wyh1ij := range wyh1i[0:len(c.H1)] {
+			v += wyh1ij.Val * c.H1[j].Val
 		}
 		v += c.Wyh1[i][len(c.H1)].Val
-		c.y[i].Val = sigmoid(v)
+		c.y[i].Val = Sigmoid(v)
 	}
 	memoryM := len(reads[0].Top)
-	for i := 0; i < len(c.heads); i++ {
+	for i, wuh1i := range c.Wuh1 {
 		c.heads[i] = NewHead(memoryM)
-		for j := 0; j < len(c.heads[i].units); j++ {
-			maxK := len(c.Wuh1[i][j]) - 1
-			for k := 0; k < maxK; k++ {
-				c.heads[i].units[j].Val += c.Wuh1[i][j][k].Val * c.H1[k].Val
+		head := c.heads[i]
+		for j, wuh1ij := range wuh1i {
+			v = 0
+			for k, wuh1ijk := range wuh1ij[0:len(c.H1)] {
+				v += wuh1ijk.Val * c.H1[k].Val
 			}
-			c.heads[i].units[j].Val += c.Wuh1[i][j][maxK].Val
+			v += wuh1ij[len(c.H1)].Val
+			head.units[j].Val += v
 		}
 	}
 
@@ -106,56 +111,66 @@ func (old *Controller1) Forward(reads []*Read, x []float64) Controller {
 }
 
 func (c *Controller1) Backward() {
-	for i := 0; i < len(c.H1); i++ {
-		var grad float64 = 0
-		for j := 0; j < len(c.y); j++ {
-			grad += c.y[j].Grad * c.Wyh1[j][i].Val
+	for j, y := range c.y {
+		for i, wyh1 := range c.Wyh1[j][0:len(c.H1)] {
+			c.H1[i].Grad += wyh1.Val * y.Grad
 		}
-		for j := 0; j < len(c.heads); j++ {
-			for k := 0; k < len(c.heads[j].units); k++ {
-				grad += c.heads[j].units[k].Grad * c.Wuh1[j][k][i].Val
+	}
+	for j, head := range c.heads {
+		wuh1j := c.Wuh1[j]
+		for k, h := range head.units {
+			for i, wuh1jki := range wuh1j[k][0:len(c.H1)] {
+				c.H1[i].Grad += h.Grad * wuh1jki.Val
 			}
 		}
-		c.H1[i].Grad += grad
 	}
-	for i := 0; i < len(c.Wyh1); i++ {
-		maxJ := len(c.Wyh1[i]) - 1
-		for j := 0; j < maxJ; j++ {
-			c.Wyh1[i][j].Grad += c.y[i].Grad * c.H1[j].Val
+	for i, wyh1i := range c.Wyh1 {
+		yGrad := c.y[i].Grad
+		for j, h1 := range c.H1 {
+			wyh1i[j].Grad += yGrad * h1.Val
 		}
-		c.Wyh1[i][maxJ].Grad += c.y[i].Grad
+		wyh1i[len(wyh1i)-1].Grad += yGrad
 	}
-	for i := 0; i < len(c.Wuh1); i++ {
-		for j := 0; j < len(c.Wuh1[i]); j++ {
-			maxK := len(c.Wuh1[i][j]) - 1
-			for k := 0; k < maxK; k++ {
-				c.Wuh1[i][j][k].Grad += c.heads[i].units[j].Grad * c.H1[k].Val
+	for i, wuh1i := range c.Wuh1 {
+		for j, head := range c.heads[i].units {
+			wuh1ij := wuh1i[j]
+			for k, h1 := range c.H1 {
+				wuh1ij[k].Grad += head.Grad * h1.Val
 			}
-			c.Wuh1[i][j][maxK].Grad += c.heads[i].units[j].Grad
+			wuh1ij[len(wuh1ij)-1].Grad += head.Grad
 		}
 	}
 
-	for i := 0; i < len(c.Reads); i++ {
-		for j := 0; j < len(c.Reads[i].Top); j++ {
-			for k := 0; k < len(c.H1); k++ {
-				c.Reads[i].Top[j].Grad += c.H1[k].Grad * c.H1[k].Val * (1 - c.H1[k].Val) * c.Wh1r[k][i][j].Val
+	h1Grads := make([]float64, len(c.H1))
+	for i, h1 := range c.H1 {
+		h1Grads[i] = h1.Grad * h1.Val * (1 - h1.Val)
+	}
+
+	for k, h1g := range h1Grads {
+		wh1rk := c.Wh1r[k]
+		for i, read := range c.Reads {
+			wh1rki := wh1rk[i]
+			for j, wh1rkij := range wh1rki {
+				read.Top[j].Grad += h1g * wh1rkij.Val
 			}
 		}
 	}
-	for i := 0; i < len(c.Wh1r); i++ {
-		for j := 0; j < len(c.Wh1r[i]); j++ {
-			for k := 0; k < len(c.Wh1r[i][j]); k++ {
-				c.Wh1r[i][j][k].Grad += c.H1[i].Grad * c.H1[i].Val * (1 - c.H1[i].Val) * c.Reads[j].Top[k].Val
+	for i, wh1ri := range c.Wh1r {
+		h1g := h1Grads[i]
+		for j, wh1rij := range wh1ri {
+			for k, read := range c.Reads[j].Top {
+				wh1rij[k].Grad += h1g * read.Val
 			}
 		}
 	}
-	for i := 0; i < len(c.Wh1x); i++ {
-		for j := 0; j < len(c.Wh1x[i]); j++ {
-			c.Wh1x[i][j].Grad += c.H1[i].Grad * c.H1[i].Val * (1 - c.H1[i].Val) * c.X[j]
+	for i, wh1xi := range c.Wh1x {
+		h1g := h1Grads[i]
+		for j, x := range c.X {
+			wh1xi[j].Grad += h1g * x
 		}
 	}
-	for i := 0; i < len(c.Wh1b); i++ {
-		c.Wh1b[i].Grad += c.H1[i].Grad * c.H1[i].Val * (1 - c.H1[i].Val)
+	for i, h1g := range h1Grads {
+		c.Wh1b[i].Grad += h1g
 	}
 }
 
@@ -167,7 +182,27 @@ func (c *Controller1) Mtm1BiasV() *WrittenMemory {
 	return c.mtm1
 }
 
-func (c *Controller1) Weights(f func(string, *Unit)) {
+func (c *Controller1) Weights(f func(*Unit)) {
+	for _, wtm1 := range c.wtm1s {
+		for _, w := range wtm1 {
+			f(&w.Top)
+		}
+	}
+	for _, row := range c.mtm1.Top {
+		for i := range row {
+			f(&row[i])
+		}
+	}
+	doUnit2(c.Wyh1, func(ids []int, u *Unit) { f(u) })
+	doUnit3(c.Wuh1, func(ids []int, u *Unit) { f(u) })
+	doUnit3(c.Wh1r, func(ids []int, u *Unit) { f(u) })
+	doUnit2(c.Wh1x, func(ids []int, u *Unit) { f(u) })
+	doUnit1(c.Wh1b, func(ids []int, u *Unit) { f(u) })
+}
+
+// WeightsVerbose is similar to Weights, but with additional information passed in.
+// Avoid using this function except for debugging, as it calls fmt.Sprintf many times which is a performance hog.
+func (c *Controller1) WeightsVerbose(f func(string, *Unit)) {
 	for i, wtm1 := range c.wtm1s {
 		for j, w := range wtm1 {
 			f(fmt.Sprintf("wtm1[%d][%d]", i, j), &w.Top)

@@ -122,7 +122,7 @@ func NewGatedWeighting(g *Unit, wc *ContentAddressing, wtm1 *Refocus) *GatedWeig
 		Wtm1: wtm1,
 		Top:  make([]Unit, len(wc.Top)),
 	}
-	gt := sigmoid(g.Val)
+	gt := Sigmoid(g.Val)
 	for i := 0; i < len(wg.Top); i++ {
 		wg.Top[i].Val = gt*wc.Top[i].Val + (1-gt)*wtm1.Top[i].Val
 	}
@@ -130,7 +130,7 @@ func NewGatedWeighting(g *Unit, wc *ContentAddressing, wtm1 *Refocus) *GatedWeig
 }
 
 func (wg *GatedWeighting) Backward() {
-	gt := sigmoid(wg.G.Val)
+	gt := Sigmoid(wg.G.Val)
 
 	var grad float64 = 0
 	for i := 0; i < len(wg.Top); i++ {
@@ -166,7 +166,7 @@ func NewShiftedWeighting(s *Unit, wg *GatedWeighting) *ShiftedWeighting {
 	//if sw.Z < 0 {
 	//	sw.Z += float64(n)
 	//}
-	sw.Z = float64(n) * sigmoid(s.Val)
+	sw.Z = float64(n) * Sigmoid(s.Val)
 	simj := 1 - (sw.Z - math.Floor(sw.Z))
 	for i := 0; i < len(sw.Top); i++ {
 		imj := (i + int(sw.Z)) % n
@@ -325,8 +325,8 @@ func NewWrittenMemory(ws []*Refocus, heads []*Head, mtm1 *WrittenMemory) *Writte
 		eraseVec := wm.Heads[i].EraseVector()
 		addVec := wm.Heads[i].AddVector()
 		for j := 0; j < len(wm.erase[i]); j++ {
-			wm.erase[i][j] = sigmoid(eraseVec[j].Val)
-			wm.add[i][j] = sigmoid(addVec[j].Val)
+			wm.erase[i][j] = Sigmoid(eraseVec[j].Val)
+			wm.add[i][j] = Sigmoid(addVec[j].Val)
 		}
 	}
 

@@ -8,13 +8,13 @@ import (
 
 func TestController1(t *testing.T) {
 	times := 10
-	x := MakeTensor2(times, 2)
+	x := MakeTensor2(times, 4)
 	for i := 0; i < len(x); i++ {
 		for j := 0; j < len(x[i]); j++ {
 			x[i][j] = rand.Float64()
 		}
 	}
-	y := MakeTensor2(times, 2)
+	y := MakeTensor2(times, 4)
 	for i := 0; i < len(y); i++ {
 		for j := 0; j < len(y[i]); j++ {
 			y[i][j] = rand.Float64()
@@ -25,7 +25,7 @@ func TestController1(t *testing.T) {
 	h1Size := 3
 	numHeads := 2
 	c := NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, n, m)
-	c.Weights(func(tag string, u *Unit) { u.Val = 2 * rand.Float64() })
+	c.Weights(func(u *Unit) { u.Val = 2 * rand.Float64() })
 	forwardBackward(c, x, y)
 
 	l := loss(c, Controller1Forward, x, y)
@@ -47,7 +47,7 @@ func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float6
 			v += c.Wh1x[i][j].Val * x[j]
 		}
 		v += c.Wh1b[i].Val
-		h1[i] = sigmoid(v)
+		h1[i] = Sigmoid(v)
 	}
 	prediction := make([]float64, len(c.Wyh1))
 	for i := 0; i < len(prediction); i++ {
@@ -57,7 +57,7 @@ func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float6
 			v += c.Wyh1[i][j].Val * h1[j]
 		}
 		v += c.Wyh1[i][maxJ].Val
-		prediction[i] = sigmoid(v)
+		prediction[i] = Sigmoid(v)
 	}
 	numHeads := len(c.Wh1r[0])
 	m := len(c.Wh1r[0][0])
@@ -127,7 +127,7 @@ func loss(c Controller, forward func(Controller, [][]float64, []float64) ([]floa
 }
 
 func checkGradients(t *testing.T, c Controller, forward func(Controller, [][]float64, []float64) ([]float64, []*Head), in, out [][]float64, lx float64) {
-	c.Weights(func(tag string, w *Unit) {
+	c.WeightsVerbose(func(tag string, w *Unit) {
 		x := w.Val
 		h := machineEpsilonSqrt * math.Max(math.Abs(x), 1)
 		xph := x + h
