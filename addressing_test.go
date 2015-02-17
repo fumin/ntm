@@ -100,7 +100,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		//if s < 0 {
 		//	s += float64(n)
 		//}
-		s := float64(n) * Sigmoid(h.S().Val)
+		s := math.Mod((2*Sigmoid(h.S().Val)-1)+float64(n), float64(n))
 		for j := 0; j < n; j++ {
 			imj := (j + int(s)) % n
 			simj := 1 - (s - math.Floor(s))

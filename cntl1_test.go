@@ -26,7 +26,7 @@ func TestController1(t *testing.T) {
 	numHeads := 2
 	c := NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, n, m)
 	c.Weights(func(u *Unit) { u.Val = 2 * rand.Float64() })
-	forwardBackward(c, x, y)
+	ForwardBackward(c, x, y)
 
 	l := loss(c, Controller1Forward, x, y)
 	checkGradients(t, c, Controller1Forward, x, y, l)
@@ -76,7 +76,7 @@ func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float6
 }
 
 func loss(c Controller, forward func(Controller, [][]float64, []float64) ([]float64, []*Head), in, out [][]float64) float64 {
-	// Initialize memory as in the function forwardBackward
+	// Initialize memory as in the function ForwardBackward
 	mem := c.Mtm1BiasV().Top
 	wtm1Bs := c.Wtm1BiasV()
 	wtm1s := make([]*Refocus, c.NumHeads())

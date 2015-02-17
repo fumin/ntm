@@ -1,8 +1,16 @@
 package ntm
 
+import (
+	"fmt"
+)
+
 type Unit struct {
 	Val  float64
 	Grad float64
+}
+
+func (u Unit) String() string {
+	return fmt.Sprintf("{%.3g %.3g}", u.Val, u.Grad)
 }
 
 func makeTensorUnit2(n, m int) [][]Unit {

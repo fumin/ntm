@@ -1,8 +1,6 @@
 package ntm
 
 import (
-	"fmt"
-	"log"
 	"math"
 )
 
@@ -88,14 +86,6 @@ func NewNTM(old *NTM, x []float64) *NTM {
 	}
 	for i := 0; i < len(m.Controller.Heads()); i++ {
 		m.Controller.Heads()[i].Wtm1 = old.Circuit.W[i]
-
-		h := m.Controller.Heads()[i]
-		for j, u := range h.units {
-			if math.IsNaN(u.Val) {
-				panic(fmt.Sprintf("%d", j))
-			}
-		}
-
 	}
 	m.Circuit = NewCircuit(m.Controller.Heads(), old.Circuit.WM)
 	return &m
@@ -106,7 +96,8 @@ func (m *NTM) Backward() {
 	m.Controller.Backward()
 }
 
-func forwardBackward(c Controller, in, out [][]float64) []*NTM {
+func ForwardBackward(c Controller, in, out [][]float64) []*NTM {
+	// Set memory and head weights to their bias values.
 	wtm1s := make([]*Refocus, c.NumHeads())
 	reads := make([]*Read, c.NumHeads())
 	cas := make([]*ContentAddressing, c.NumHeads())
@@ -124,24 +115,22 @@ func forwardBackward(c Controller, in, out [][]float64) []*NTM {
 		Circuit:    &Circuit{W: wtm1s, R: reads, WM: c.Mtm1BiasV()},
 	}
 
+	// Backpropagation through time.
 	machines[0] = NewNTM(empty, in[0])
 	for t := 1; t < len(in); t++ {
 		machines[t] = NewNTM(machines[t-1], in[t])
 	}
 	c.Weights(func(u *Unit) { u.Grad = 0 })
-	//okt := len(out) - ((len(out)-2) / 2)
 	for t := len(in) - 1; t >= 0; t-- {
 		m := machines[t]
-
-		//if t >= okt {
 		y := out[t]
 		for i := 0; i < len(y); i++ {
 			m.Controller.Y()[i].Grad = m.Controller.Y()[i].Val - y[i]
 		}
-		//}
 		m.Backward()
 	}
 
+	// Compute gradients for the bias values of the initial memory and weights.
 	for i := range reads {
 		reads[i].Backward()
 		for j := range reads[i].W.Top {
@@ -153,6 +142,46 @@ func forwardBackward(c Controller, in, out [][]float64) []*NTM {
 	return machines
 }
 
+func Loss(output [][]float64, ms []*NTM) float64 {
+	var l float64 = 0
+	okt := len(output) - ((len(output) - 2) / 2)
+	for t := 0; t < len(output); t++ {
+		for i := 0; i < len(output[t]); i++ {
+			y := output[t][i]
+			p := ms[t].Controller.Y()[i].Val
+			if t >= okt {
+				l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
+			}
+		}
+	}
+	return -l
+}
+
+func Predictions(machines []*NTM) [][]float64 {
+	pdts := make([][]float64, len(machines))
+	for t := range pdts {
+		y := machines[t].Controller.Y()
+		pdts[t] = make([]float64, len(y))
+		for i, v := range y {
+			pdts[t][i] = v.Val
+		}
+	}
+	return pdts
+}
+
+func HeadWeights(machines []*NTM) [][]float64 {
+	hws := make([][]float64, len(machines))
+	for t := range hws {
+		w := machines[t].Circuit.W[0]
+		hws[t] = make([]float64, len(w.Top))
+		for i, v := range w.Top {
+			hws[t][i] = v.Val
+		}
+	}
+	return hws
+}
+
+// SGDMomentum implements stochastic gradient descent with momentum.
 type SGDMomentum struct {
 	C     Controller
 	PrevD []float64
@@ -167,7 +196,7 @@ func NewSGDMomentum(c Controller) *SGDMomentum {
 }
 
 func (s *SGDMomentum) Train(x, y [][]float64, alpha, mt float64) []*NTM {
-	machines := forwardBackward(s.C, x, y)
+	machines := ForwardBackward(s.C, x, y)
 	i := 0
 	s.C.Weights(func(w *Unit) {
 		d := -alpha*w.Grad + mt*s.PrevD[i]
@@ -178,6 +207,8 @@ func (s *SGDMomentum) Train(x, y [][]float64, alpha, mt float64) []*NTM {
 	return machines
 }
 
+// RMSProp implements the rmsprop algorithm. The detailed updating equations are given in
+// Graves, Alex (2013). Generating sequences with recurrent neural networks. arXiv preprint arXiv:1308.0850.
 type RMSProp struct {
 	C Controller
 	N []float64
@@ -196,17 +227,13 @@ func NewRMSProp(c Controller) *RMSProp {
 }
 
 func (r *RMSProp) Train(x, y [][]float64, a, b, c, d float64) []*NTM {
-	machines := forwardBackward(r.C, x, y)
+	machines := ForwardBackward(r.C, x, y)
 	i := 0
 	r.C.Weights(func(w *Unit) {
 		r.N[i] = a*r.N[i] + (1-a)*w.Grad*w.Grad
 		r.G[i] = a*r.G[i] + (1-a)*w.Grad
 		r.D[i] = b*r.D[i] - c*w.Grad/math.Sqrt(r.N[i]-r.G[i]*r.G[i]+d)
 		w.Val += r.D[i]
-		if math.IsNaN(w.Val) {
-			log.Printf("%f %f %f %f", w.Grad, r.N[i], r.G[i], r.D[i])
-			panic("")
-		}
 		i++
 	})
 	return machines

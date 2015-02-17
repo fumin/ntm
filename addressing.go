@@ -37,9 +37,13 @@ func NewSimilarity(u, v []Unit) *Similarity {
 }
 
 func (s *Similarity) Backward() {
-	for i := 0; i < len(s.U); i++ {
-		s.U[i].Grad += (s.V[i].Val - s.UV*s.U[i].Val/(s.Unorm*s.Unorm)) / (s.Unorm * s.Vnorm) * s.Top.Grad
-		s.V[i].Grad += (s.U[i].Val - s.UV*s.V[i].Val/(s.Vnorm*s.Vnorm)) / (s.Unorm * s.Vnorm) * s.Top.Grad
+	uvuu := s.UV / (s.Unorm * s.Unorm)
+	uvvv := s.UV / (s.Vnorm * s.Vnorm)
+	uvg := s.Top.Grad / (s.Unorm * s.Vnorm)
+	for i, u := range s.U {
+		v := s.V[i].Val
+		s.U[i].Grad += (v - u.Val*uvuu) * uvg
+		s.V[i].Grad += (u.Val - v*uvvv) * uvg
 	}
 }
 
@@ -76,35 +80,30 @@ func NewContentAddressing(units []*BetaSimilarity) *ContentAddressing {
 		Units: units,
 		Top:   make([]Unit, len(units)),
 	}
+	// Increase numerical stability by subtracting all weights by their max,
+	// before computing math.Exp().
+	var max float64 = -1
+	for _, u := range s.Units {
+		max = math.Max(max, u.Top.Val)
+	}
 	var sum float64 = 0
 	for i := 0; i < len(s.Top); i++ {
-		s.Top[i].Val = math.Exp(s.Units[i].Top.Val)
+		s.Top[i].Val = math.Exp(s.Units[i].Top.Val - max)
 		sum += s.Top[i].Val
 	}
 	for i := 0; i < len(s.Top); i++ {
 		s.Top[i].Val = s.Top[i].Val / sum
-		if math.IsNaN(s.Top[i].Val) {
-			us := ""
-			for i := range s.Units {
-				us = fmt.Sprintf("%s, %f, %f, %+v", us, s.Units[i].Beta.Val, s.Units[i].b, s.Units[i].Top)
-			}
-			panic(fmt.Sprintf("us: %s", us))
-		}
 	}
 	return &s
 }
 
 func (s *ContentAddressing) Backward() {
-	for i := 0; i < len(s.Units); i++ {
-		var grad float64 = 0
-		for j := 0; j < len(s.Top); j++ {
-			if j == i {
-				grad += s.Top[j].Grad * (1 - s.Top[j].Val)
-			} else {
-				grad -= s.Top[j].Grad * s.Top[j].Val
-			}
-		}
-		s.Units[i].Top.Grad += grad * s.Top[i].Val
+	var gv float64 = 0
+	for _, top := range s.Top {
+		gv += top.Grad * top.Val
+	}
+	for i, top := range s.Top {
+		s.Units[i].Top.Grad += (top.Grad - gv) * top.Val
 	}
 }
 
@@ -166,7 +165,11 @@ func NewShiftedWeighting(s *Unit, wg *GatedWeighting) *ShiftedWeighting {
 	//if sw.Z < 0 {
 	//	sw.Z += float64(n)
 	//}
-	sw.Z = float64(n) * Sigmoid(s.Val)
+
+	//sw.Z = float64(n) * Sigmoid(s.Val)
+	shift := (2*Sigmoid(s.Val) - 1) // * maxShift
+	sw.Z = math.Mod(shift+float64(n), float64(n))
+
 	simj := 1 - (sw.Z - math.Floor(sw.Z))
 	for i := 0; i < len(sw.Top); i++ {
 		imj := (i + int(sw.Z)) % n
@@ -186,7 +189,9 @@ func (sw *ShiftedWeighting) Backward() {
 		imj := (i + int(sw.Z)) % n
 		grad += (-sw.WG.Top[imj].Val + sw.WG.Top[(imj+1)%n].Val) * sw.Top[i].Grad
 	}
-	grad = grad * sw.Z * (1 - sw.Z/float64(n))
+	sig := Sigmoid(sw.S.Val)
+	grad = grad * 2 * sig * (1 - sig)
+	// grad = grad * sw.Z * (1 - sw.Z/float64(n))
 	sw.S.Grad += grad
 
 	simj := 1 - (sw.Z - math.Floor(sw.Z))
@@ -228,6 +233,9 @@ func NewRefocus(gamma *Unit, sw *ShiftedWeighting) *Refocus {
 
 func (rf *Refocus) Backward() {
 	for i := 0; i < len(rf.SW.Top); i++ {
+		if rf.SW.Top[i].Val < machineEpsilon {
+			continue
+		}
 		var grad float64 = 0
 		for j := 0; j < len(rf.Top); j++ {
 			if j == i {
@@ -244,6 +252,9 @@ func (rf *Refocus) Backward() {
 	var lnexp float64 = 0
 	var s float64 = 0
 	for i := 0; i < len(lns); i++ {
+		if rf.SW.Top[i].Val < machineEpsilon {
+			continue
+		}
 		lns[i] = math.Log(rf.SW.Top[i].Val)
 		pow := math.Pow(rf.SW.Top[i].Val, rf.g)
 		lnexp += lns[i] * pow
@@ -252,6 +263,9 @@ func (rf *Refocus) Backward() {
 	lnexps := lnexp / s
 	var grad float64 = 0
 	for i := 0; i < len(rf.Top); i++ {
+		if rf.SW.Top[i].Val < machineEpsilon {
+			continue
+		}
 		grad += rf.Top[i].Grad * (rf.Top[i].Val * (lns[i] - lnexps))
 	}
 	grad = grad / (1 + math.Exp(-rf.Gamma.Val))
@@ -352,7 +366,6 @@ func (wm *WrittenMemory) Backward() {
 			var grad float64 = 0
 			for k := 0; k < len(wm.Top[j]); k++ {
 				e := wm.erase[i][k]
-				//gErase := wm.mTilt[j][k] / (1 - wm.Ws[i].Top[j].Val*e) * (-e)
 				gErase := wm.Mtm1.Top[j][k].Val * (-e)
 				for q := 0; q < len(wm.Ws); q++ {
 					if q == i {
@@ -372,7 +385,6 @@ func (wm *WrittenMemory) Backward() {
 		for i := 0; i < len(h.EraseVector()); i++ {
 			var grad float64 = 0
 			for j := 0; j < len(wm.Top); j++ {
-				//grad += wm.Top[j][i].Grad * wm.mTilt[j][i] / (1 - wm.Ws[k].Top[j].Val*wm.erase[k][i]) * (-wm.Ws[k].Top[j].Val)
 				gErase := wm.Mtm1.Top[j][i].Val
 				for q := 0; q < len(wm.Ws); q++ {
 					if q == k {
@@ -400,7 +412,6 @@ func (wm *WrittenMemory) Backward() {
 	// Gradient of wm.Mtm1
 	for i := 0; i < len(wm.Mtm1.Top); i++ {
 		for j := 0; j < len(wm.Mtm1.Top[i]); j++ {
-			//wm.Mtm1.Top[i][j].Grad += (wm.mTilt[i][j] / wm.Mtm1.Top[i][j].Val) * wm.Top[i][j].Grad
 			var grad float64 = 1
 			for q := 0; q < len(wm.Ws); q++ {
 				grad = grad * (1 - wm.Ws[q].Top[i].Val*wm.erase[q][j])
