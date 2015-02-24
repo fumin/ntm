@@ -82,17 +82,18 @@ func NewContentAddressing(units []*BetaSimilarity) *ContentAddressing {
 	}
 	// Increase numerical stability by subtracting all weights by their max,
 	// before computing math.Exp().
-	var max float64 = -1
+	var max float64 = -math.MaxFloat64
 	for _, u := range s.Units {
 		max = math.Max(max, u.Top.Val)
 	}
 	var sum float64 = 0
-	for i := 0; i < len(s.Top); i++ {
-		s.Top[i].Val = math.Exp(s.Units[i].Top.Val - max)
-		sum += s.Top[i].Val
+	for i, u := range s.Units {
+		w := math.Exp(u.Top.Val - max)
+		s.Top[i].Val = w
+		sum += w
 	}
-	for i := 0; i < len(s.Top); i++ {
-		s.Top[i].Val = s.Top[i].Val / sum
+	for i, top := range s.Top {
+		s.Top[i].Val = top.Val / sum
 	}
 	return &s
 }
@@ -174,7 +175,7 @@ func NewShiftedWeighting(s *Unit, wg *GatedWeighting) *ShiftedWeighting {
 	for i := 0; i < len(sw.Top); i++ {
 		imj := (i + int(sw.Z)) % n
 		sw.Top[i].Val = sw.WG.Top[imj].Val*simj + sw.WG.Top[(imj+1)%n].Val*(1-simj)
-		if sw.Top[i].Val < 0 {
+		if math.IsNaN(sw.Top[i].Val) || sw.Top[i].Val < 0 {
 			log.Printf("imj: %d, wg: %f, simj: %f, wg+1: %f", imj, sw.WG.Top[imj].Val, simj, sw.WG.Top[(imj+1)%n].Val)
 			panic("")
 		}
@@ -232,41 +233,41 @@ func NewRefocus(gamma *Unit, sw *ShiftedWeighting) *Refocus {
 }
 
 func (rf *Refocus) Backward() {
-	for i := 0; i < len(rf.SW.Top); i++ {
-		if rf.SW.Top[i].Val < machineEpsilon {
+	for i, sw := range rf.SW.Top {
+		if sw.Val < machineEpsilon {
 			continue
 		}
 		var grad float64 = 0
-		for j := 0; j < len(rf.Top); j++ {
+		for j, top := range rf.Top {
 			if j == i {
-				grad += rf.Top[j].Grad * (1 - rf.Top[j].Val)
+				grad += top.Grad * (1 - top.Val)
 			} else {
-				grad -= rf.Top[j].Grad * rf.Top[j].Val
+				grad -= top.Grad * top.Val
 			}
 		}
-		grad = grad * rf.g / rf.SW.Top[i].Val * rf.Top[i].Val
+		grad = grad * rf.g / sw.Val * rf.Top[i].Val
 		rf.SW.Top[i].Grad += grad
 	}
 
 	lns := make([]float64, len(rf.SW.Top))
 	var lnexp float64 = 0
 	var s float64 = 0
-	for i := 0; i < len(lns); i++ {
-		if rf.SW.Top[i].Val < machineEpsilon {
+	for i, sw := range rf.SW.Top {
+		if sw.Val < machineEpsilon {
 			continue
 		}
-		lns[i] = math.Log(rf.SW.Top[i].Val)
-		pow := math.Pow(rf.SW.Top[i].Val, rf.g)
+		lns[i] = math.Log(sw.Val)
+		pow := math.Pow(sw.Val, rf.g)
 		lnexp += lns[i] * pow
 		s += pow
 	}
 	lnexps := lnexp / s
 	var grad float64 = 0
-	for i := 0; i < len(rf.Top); i++ {
+	for i, top := range rf.Top {
 		if rf.SW.Top[i].Val < machineEpsilon {
 			continue
 		}
-		grad += rf.Top[i].Grad * (rf.Top[i].Val * (lns[i] - lnexps))
+		grad += top.Grad * (top.Val * (lns[i] - lnexps))
 	}
 	grad = grad / (1 + math.Exp(-rf.Gamma.Val))
 	rf.Gamma.Grad += grad
@@ -319,9 +320,9 @@ type WrittenMemory struct {
 	Mtm1  *WrittenMemory // memory at time t-1
 	Top   [][]Unit
 
-	erase [][]float64
-	add   [][]float64
-	mTilt [][]float64
+	erase    [][]float64
+	add      [][]float64
+	erasures [][]float64
 }
 
 func NewWrittenMemory(ws []*Refocus, heads []*Head, mtm1 *WrittenMemory) *WrittenMemory {
@@ -331,29 +332,33 @@ func NewWrittenMemory(ws []*Refocus, heads []*Head, mtm1 *WrittenMemory) *Writte
 		Mtm1:  mtm1,
 		Top:   makeTensorUnit2(len(mtm1.Top), len(mtm1.Top[0])),
 
-		erase: MakeTensor2(len(heads), len(mtm1.Top[0])),
-		add:   MakeTensor2(len(heads), len(mtm1.Top[0])),
-		mTilt: MakeTensor2(len(mtm1.Top), len(mtm1.Top[0])),
+		erase:    MakeTensor2(len(heads), len(mtm1.Top[0])),
+		add:      MakeTensor2(len(heads), len(mtm1.Top[0])),
+		erasures: MakeTensor2(len(mtm1.Top), len(mtm1.Top[0])),
 	}
-	for i := 0; i < len(wm.Heads); i++ {
-		eraseVec := wm.Heads[i].EraseVector()
-		addVec := wm.Heads[i].AddVector()
-		for j := 0; j < len(wm.erase[i]); j++ {
-			wm.erase[i][j] = Sigmoid(eraseVec[j].Val)
-			wm.add[i][j] = Sigmoid(addVec[j].Val)
+	for i, h := range wm.Heads {
+		erase := wm.erase[i]
+		add := wm.add[i]
+		eraseVec := h.EraseVector()
+		addVec := h.AddVector()
+		for j, e := range eraseVec {
+			erase[j] = Sigmoid(e.Val)
+			add[j] = Sigmoid(addVec[j].Val)
 		}
 	}
 
-	for i := 0; i < len(wm.Top); i++ {
-		for j := 0; j < len(wm.Top[i]); j++ {
-			var mtilt float64 = 1
+	for i, mtm1Row := range wm.Mtm1.Top {
+		erasure := wm.erasures[i]
+		topRow := wm.Top[i]
+		for j, mtm1 := range mtm1Row {
+			var e float64 = 1
 			var adds float64 = 0
-			for k := 0; k < len(wm.Heads); k++ {
-				mtilt = mtilt * (1 - wm.Ws[k].Top[i].Val*wm.erase[k][j])
-				adds = adds + wm.Ws[k].Top[i].Val*wm.add[k][j]
+			for k, weights := range wm.Ws {
+				e = e * (1 - weights.Top[i].Val*wm.erase[k][j])
+				adds += weights.Top[i].Val * wm.add[k][j]
 			}
-			wm.mTilt[i][j] = wm.Mtm1.Top[i][j].Val * mtilt
-			wm.Top[i][j].Val = wm.mTilt[i][j] + adds
+			erasure[j] = e
+			topRow[j].Val += e*mtm1.Val + adds
 		}
 	}
 	return &wm
@@ -361,62 +366,75 @@ func NewWrittenMemory(ws []*Refocus, heads []*Head, mtm1 *WrittenMemory) *Writte
 
 func (wm *WrittenMemory) Backward() {
 	// Gradient of W
-	for i := 0; i < len(wm.Ws); i++ {
-		for j := 0; j < len(wm.Ws[i].Top); j++ {
-			var grad float64 = 0
-			for k := 0; k < len(wm.Top[j]); k++ {
-				e := wm.erase[i][k]
-				gErase := wm.Mtm1.Top[j][k].Val * (-e)
-				for q := 0; q < len(wm.Ws); q++ {
+	var grad float64 = 0
+	for i, weights := range wm.Ws {
+		erase := wm.erase[i]
+		add := wm.add[i]
+		for j, topRow := range wm.Top {
+			mtm1Row := wm.Mtm1.Top[j]
+			grad = 0
+			for k, top := range topRow {
+				mtilt := mtm1Row[k].Val
+				for q, ws := range wm.Ws {
 					if q == i {
 						continue
 					}
-					gErase = gErase * (1 - wm.Ws[q].Top[j].Val*wm.erase[q][k])
+					mtilt = mtilt * (1 - ws.Top[j].Val*wm.erase[q][k])
 				}
-				gAdd := wm.add[i][k]
-				grad += (gErase + gAdd) * wm.Top[j][k].Grad
+				grad += (mtilt*(-erase[k]) + add[k]) * top.Grad
 			}
-			wm.Ws[i].Top[j].Grad += grad
+			weights.Top[j].Grad += grad
 		}
 	}
 
 	// Gradient of Erase vector
 	for k, h := range wm.Heads {
-		for i := 0; i < len(h.EraseVector()); i++ {
-			var grad float64 = 0
-			for j := 0; j < len(wm.Top); j++ {
+		hErase := h.EraseVector()
+		erase := wm.erase[k]
+		ws := wm.Ws[k]
+		for i := range hErase {
+			grad = 0
+			for j, topRow := range wm.Top {
 				gErase := wm.Mtm1.Top[j][i].Val
-				for q := 0; q < len(wm.Ws); q++ {
+				for q := range wm.Ws {
 					if q == k {
 						continue
 					}
 					gErase = gErase * (1 - wm.Ws[q].Top[j].Val*wm.erase[q][i])
 				}
-				grad += wm.Top[j][i].Grad * gErase * (-wm.Ws[k].Top[j].Val)
+				// Contrary to the rules of math, the order in which these 3 numbers multiply matters...
+				// For example, in the copy task the rate of convergence for rand.Seed(8) differs a lot if an alternative ordering is used.
+				grad += topRow[i].Grad * gErase * (-ws.Top[j].Val)
 			}
-			h.EraseVector()[i].Grad += grad * wm.erase[k][i] * (1 - wm.erase[k][i])
+			e := erase[i]
+			hErase[i].Grad += grad * e * (1 - e)
 		}
 	}
 
 	// Gradient of Add vector
 	for k, h := range wm.Heads {
-		for i := 0; i < len(h.AddVector()); i++ {
-			var grad float64 = 0
-			for j := 0; j < len(wm.Top); j++ {
-				grad += wm.Top[j][i].Grad * wm.Ws[k].Top[j].Val
+		add := wm.add[k]
+		ws := wm.Ws[k]
+		hAdd := h.AddVector()
+		for i := range hAdd {
+			grad = 0
+			for j, toprow := range wm.Top {
+				grad += toprow[i].Grad * ws.Top[j].Val
 			}
-			h.AddVector()[i].Grad += grad * wm.add[k][i] * (1 - wm.add[k][i])
+			a := add[i]
+			hAdd[i].Grad += grad * a * (1 - a)
 		}
 	}
 
 	// Gradient of wm.Mtm1
-	for i := 0; i < len(wm.Mtm1.Top); i++ {
-		for j := 0; j < len(wm.Mtm1.Top[i]); j++ {
-			var grad float64 = 1
-			for q := 0; q < len(wm.Ws); q++ {
-				grad = grad * (1 - wm.Ws[q].Top[i].Val*wm.erase[q][j])
+	for i, mtm1row := range wm.Mtm1.Top {
+		toprow := wm.Top[i]
+		for j, top := range toprow {
+			grad = 1
+			for q, ws := range wm.Ws {
+				grad = grad * (1 - ws.Top[i].Val*wm.erase[q][j])
 			}
-			wm.Mtm1.Top[i][j].Grad += grad * wm.Top[i][j].Grad
+			mtm1row[j].Grad += grad * top.Grad
 		}
 	}
 }

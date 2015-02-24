@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"math"
@@ -46,7 +47,7 @@ func main() {
 	http.HandleFunc("/PrintDebug", func(w http.ResponseWriter, r *http.Request) {
 		printDebugChan <- struct{}{}
 	})
-	port := 8087
+	port := 8088
 	go func() {
 		log.Printf("Listening on port %d", port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
@@ -54,15 +55,13 @@ func main() {
 		}
 	}()
 
-	var seed int64 = 7
+	var seed int64 = 8
 	rand.Seed(seed)
-	log.Printf("seed: %d", seed)
 
 	genFunc := "bt"
-	log.Printf("genseq: %s", genFunc)
 	x, y := repeatcopy.G[genFunc](1, 1)
 	h1Size := 100
-	numHeads := 1
+	numHeads := 2
 	n := 128
 	m := 20
 	c := ntm.NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, n, m)
@@ -72,7 +71,7 @@ func main() {
 	doPrint := false
 
 	rmsp := ntm.NewRMSProp(c)
-	log.Printf("numweights: %d", c.NumWeights())
+	log.Printf("genFunc: %s, seed: %d, numweights: %d, numHeads: %d", genFunc, seed, c.NumWeights(), c.NumHeads())
 	for i := 1; ; i++ {
 		x, y := repeatcopy.G[genFunc](rand.Intn(10)+1, rand.Intn(10)+1)
 		machines := rmsp.Train(x, y, 0.95, 0.5, 1e-3, 1e-3)

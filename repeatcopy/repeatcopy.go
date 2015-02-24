@@ -19,7 +19,7 @@ var (
 func GenSeqBT(repeat, seqlen int) ([][]float64, [][]float64) {
 	data := randData(seqlen)
 	vectorSize := len(data[0])
-	inputSize := vectorSize + 3
+	inputSize := vectorSize + 4
 	outputSize := vectorSize + 1
 
 	input := make([][]float64, 0)
@@ -33,20 +33,24 @@ func GenSeqBT(repeat, seqlen int) ([][]float64, [][]float64) {
 		input = append(input, v)
 	}
 
+	marker = make([]float64, inputSize)
+	marker[vectorSize+1] = 1
+	input = append(input, marker)
+
 	// Encode repeat times as little endian.
 	repeatBin := strconv.FormatInt(int64(repeat), 2)
 	for i := len(repeatBin) - 1; i >= 0; i-- {
 		v := make([]float64, inputSize)
 		if repeatBin[i] == '1' {
-			v[vectorSize+1] = 1
+			v[vectorSize+2] = 1
 		} else {
-			v[vectorSize+1] = 0
+			v[vectorSize+2] = 0
 		}
 		input = append(input, v)
 	}
 
 	v := make([]float64, inputSize)
-	v[vectorSize+2] = 1
+	v[vectorSize+3] = 1
 	input = append(input, v)
 
 	output := make([][]float64, len(input))

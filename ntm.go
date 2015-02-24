@@ -169,13 +169,15 @@ func Predictions(machines []*NTM) [][]float64 {
 	return pdts
 }
 
-func HeadWeights(machines []*NTM) [][]float64 {
-	hws := make([][]float64, len(machines))
-	for t := range hws {
-		w := machines[t].Circuit.W[0]
-		hws[t] = make([]float64, len(w.Top))
-		for i, v := range w.Top {
-			hws[t][i] = v.Val
+func HeadWeights(machines []*NTM) [][][]float64 {
+	hws := make([][][]float64, len(machines[0].Circuit.W))
+	for i := range hws {
+		hws[i] = make([][]float64, len(machines))
+		for t, m := range machines {
+			hws[i][t] = make([]float64, len(m.Circuit.W[i].Top))
+			for j, w := range m.Circuit.W[i].Top {
+				hws[i][t][j] = w.Val
+			}
 		}
 	}
 	return hws

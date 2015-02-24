@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/fumin/ntm"
-	"github.com/fumin/ntm/copytask"
+	"github.com/fumin/ntm/repeatcopy"
 )
 
 var (
@@ -17,7 +17,7 @@ var (
 )
 
 type Run struct {
-	SeqLen      int
+	Conf        RunConf
 	BitsPerSeq  float64
 	X           [][]float64
 	Y           [][]float64
@@ -25,33 +25,45 @@ type Run struct {
 	HeadWeights [][][]float64
 }
 
+type RunConf struct {
+	Repeat int
+	SeqLen int
+}
+
 func main() {
 	flag.Parse()
-	vectorSize := 8
+
+	genFunc := "bt"
+	x, y := repeatcopy.G[genFunc](1, 1)
 	h1Size := 100
-	numHeads := 1
+	numHeads := 2
 	n := 128
 	m := 20
-	c := ntm.NewEmptyController1(vectorSize+2, vectorSize, h1Size, numHeads, n, m)
+	c := ntm.NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, n, m)
+	weightsFromFile(c)
 
-	ws := weightsFromFile()
-	i := 0
-	c.Weights(func(u *ntm.Unit) {
-		u.Val = ws[i]
-		i++
-	})
-
-	seqLens := []int{10, 20, 30, 50, 120}
-	runs := make([]Run, 0, len(seqLens))
-	for _, seql := range seqLens {
-		x, y := copytask.GenSeq(seql, vectorSize)
+	confs := []RunConf{
+		RunConf{Repeat: 2, SeqLen: 3},
+		RunConf{Repeat: 7, SeqLen: 7},
+		RunConf{Repeat: 15, SeqLen: 10},
+		RunConf{Repeat: 10, SeqLen: 15},
+		//RunConf{Repeat: 15, SeqLen: 15},
+		//RunConf{Repeat: 20, SeqLen: 10},
+		//RunConf{Repeat: 10, SeqLen: 20},
+		//RunConf{Repeat: 20, SeqLen: 20},
+		//RunConf{Repeat: 30, SeqLen: 10},
+		//RunConf{Repeat: 10, SeqLen: 30},
+	}
+	runs := make([]Run, 0, len(confs))
+	for _, conf := range confs {
+		x, y := repeatcopy.G[genFunc](conf.Repeat, conf.SeqLen)
 		machines := ntm.ForwardBackward(c, x, y)
 		l := ntm.Loss(y, machines)
 		bps := l / float64(len(y)*len(y[0]))
-		log.Printf("sequence length: %d, loss: %f", seql, bps)
+		log.Printf("conf: %+v, loss: %f", conf, bps)
 
 		r := Run{
-			SeqLen:      seql,
+			Conf:        conf,
 			BitsPerSeq:  bps,
 			X:           x,
 			Y:           y,
@@ -74,7 +86,7 @@ var rootTmpl = template.Must(template.New("").Parse(`
 <!DOCTYPE html>
 <html>
 <head>
-  <script type="text/javascript" src="http://d3js.org/d3.v3.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
   <script type="text/javascript" src="http://d3js.org/colorbrewer.v1.js"></script>
 </head>
 <body>
@@ -104,8 +116,10 @@ function palette(parent) {
 // imshow displays a 2 dimensional matrix.
 function imshow(parent, matrix) {
   var table = parent.append("table");
+
   var tr = table.selectAll("tr").data(matrix).
     enter().append("tr");
+
   var colormap = d3.scale.quantize().domain([0, 1]).range(colorbrewer.RdYlBu[9].slice().reverse());
   var td = tr.selectAll("td").data(function(d) { return d; }).
     enter().append("td").
@@ -121,17 +135,17 @@ var run = allRuns.selectAll("div").
   enter().append("div").
   attr("id", function(d){ return "run-"+d.SeqLen;});
 
-run.append("h4").text(function(d){ return "Sequence length: "+d.SeqLen+", bits-per-char: "+d.BitsPerSeq.toPrecision(3); });
+run.append("h4").text(function(d){ return "Repeat: "+d.Conf.Repeat+", Length: "+d.Conf.SeqLen+", bits-per-char: "+d.BitsPerSeq.toPrecision(3); });
 
 // Draw x along with a palette.
 var x = run.append("table").append("tr");
 imshow(x.append("td"), function(d){ return d3.transpose(d.X); });
 palette(x.append("td"));
 
-// Draw predictions
 imshow(run, function(d){ return d3.transpose(d.Y); });
 imshow(run, function(d){ return d3.transpose(d.Predictions); });
 
+// Draw the weights of all memory heads.
 var headWs = run.append("div");
 headWs.selectAll("div").
   data(function(d){ return d.HeadWeights; }).
@@ -152,7 +166,7 @@ func root(runs []Run) func(http.ResponseWriter, *http.Request) {
 	}
 }
 
-func weightsFromFile() []float64 {
+func weightsFromFile(c ntm.Controller) {
 	if *weightsFile == "" {
 		flag.PrintDefaults()
 		os.Exit(1)
@@ -167,5 +181,10 @@ func weightsFromFile() []float64 {
 	if err := json.NewDecoder(f).Decode(&ws); err != nil {
 		log.Fatalf("%v", err)
 	}
-	return ws
+
+	i := 0
+	c.Weights(func(u *ntm.Unit) {
+		u.Val = ws[i]
+		i++
+	})
 }
