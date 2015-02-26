@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/fumin/ntm"
-	"github.com/fumin/ntm/repeatcopy"
+	"github.com/fumin/ntm/ngram"
 )
 
 var (
@@ -26,45 +26,40 @@ type Run struct {
 }
 
 type RunConf struct {
-	Repeat int
-	SeqLen int
+	Prob []float64
 }
 
 func main() {
 	flag.Parse()
 
-	genFunc := "bt"
-	x, y := repeatcopy.G[genFunc](1, 1)
 	h1Size := 100
-	numHeads := 2
+	numHeads := 1
 	n := 128
 	m := 20
-	c := ntm.NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, n, m)
+	c := ntm.NewEmptyController1(1, 1, h1Size, numHeads, n, m)
 	weightsFromFile(c)
 
-	confs := []RunConf{
-		RunConf{Repeat: 2, SeqLen: 3},
-		RunConf{Repeat: 7, SeqLen: 7},
-		RunConf{Repeat: 15, SeqLen: 10},
-		RunConf{Repeat: 10, SeqLen: 15},
-		//RunConf{Repeat: 15, SeqLen: 15},
-		//RunConf{Repeat: 20, SeqLen: 10},
-		//RunConf{Repeat: 10, SeqLen: 20},
-		//RunConf{Repeat: 20, SeqLen: 20},
-		//RunConf{Repeat: 30, SeqLen: 10},
-		//RunConf{Repeat: 10, SeqLen: 30},
-	}
-	runs := make([]Run, 0, len(confs))
-	for _, conf := range confs {
-		x, y := repeatcopy.G[genFunc](conf.Repeat, conf.SeqLen)
-		machines := ntm.ForwardBackward(c, x, y)
-		l := ntm.Loss(y, machines)
-		bps := l / float64(len(y)*len(y[0]))
-		log.Printf("conf: %+v, loss: %f", conf, bps)
+	runs := make([]Run, 0)
+	for i := 0; i < 1; i++ {
+		prob := ngram.GenProb()
+		var l float64 = 0
+		var x [][]float64
+		var y [][]float64
+		var machines []*ntm.NTM
+		sampletimes := 100
+		for j := 0; j < sampletimes; j++ {
+			x, y = ngram.GenSeq(prob)
+			machines = ntm.ForwardBackward(c, x, y)
+			l += ntm.Loss(y, machines)
+			if (j+1)%10 == 0 {
+				log.Printf("%d %d %f", i, j+1, l/float64(j+1))
+			}
+		}
+		l = l / float64(sampletimes)
 
 		r := Run{
-			Conf:        conf,
-			BitsPerSeq:  bps,
+			Conf:        RunConf{Prob: prob},
+			BitsPerSeq:  l,
 			X:           x,
 			Y:           y,
 			Predictions: ntm.Predictions(machines),
@@ -93,17 +88,18 @@ var rootTmpl = template.Must(template.New("").Parse(`
 var page = {{.}};
 
 var colorbrewer = {};
-colorbrewer.RdYlBu = {};
-colorbrewer.RdYlBu[9] = ["#d73027","#f46d43","#fdae61","#fee090","#ffffbf","#e0f3f8","#abd9e9","#74add1","#4575b4"];
+colorbrewer.Greys = {};
+colorbrewer.Greys[9] = ["#ffffff","#f0f0f0","#d9d9d9","#bdbdbd","#969696","#737373","#525252","#252525","#000000"];
 
 // palette draws a color palette explaining that 0.0 maps to blue and 1.0 maps to red.
 function palette(parent) {
-  var matrix = colorbrewer.RdYlBu[9].map(function(d, i) {
+  var colormap = colorbrewer.Greys[9];
+  var matrix = colormap.map(function(d, i) {
     return [{"text": ""}, {"bgcolor": d}];
   });
   matrix[0][0].text = "1.0";
-  matrix[(colorbrewer.RdYlBu[9].length-1) / 2][0].text = "0.5";
-  matrix[colorbrewer.RdYlBu[9].length-1][0].text = "0.0";
+  matrix[(colormap.length-1) / 2][0].text = "0.5";
+  matrix[colormap.length-1][0].text = "0.0";
   var table = parent.append("table")
   var tr = table.selectAll("tr").data(matrix).
     enter().append("tr");
@@ -123,7 +119,7 @@ function imshow(parent, matrix) {
   var tr = table.selectAll("tr").data(matrix).
     enter().append("tr");
 
-  var colormap = d3.scale.quantize().domain([0, 1]).range(colorbrewer.RdYlBu[9].slice().reverse());
+  var colormap = d3.scale.quantize().domain([0, 1]).range(colorbrewer.Greys[9].slice().reverse());
   var td = tr.selectAll("td").data(function(d) { return d; }).
     enter().append("td").
     style("background-color", colormap).
@@ -138,18 +134,21 @@ var run = allRuns.selectAll("div").
   enter().append("div").
   attr("id", function(d){ return "run-"+d.SeqLen;});
 
-run.append("h4").text(function(d){ return "Repeat: "+d.Conf.Repeat+", Length: "+d.Conf.SeqLen+", bits-per-char: "+d.BitsPerSeq.toPrecision(3); });
+run.append("h4").text(function(d){ return "bits-per-sequence: "+d.BitsPerSeq.toPrecision(3); });
 
 // Draw x along with a palette.
+run.append("h5").text("input:");
 var x = run.append("table").style("border-spacing", "0px").append("tr");
 imshow(x.append("td").style("padding-left", "0px"), function(d){ return d3.transpose(d.X); });
 palette(x.append("td"));
 
+run.append("h5").text("output and prediction:");
 imshow(run, function(d){ return d3.transpose(d.Y); });
 imshow(run, function(d){ return d3.transpose(d.Predictions); });
 
 // Draw the weights of all memory heads.
 var headWs = run.append("div");
+headWs.append("h5").text("Head weights:");
 headWs.selectAll("div").
   data(function(d){ return d.HeadWeights; }).
   enter().call(imshow, function(d){ return d3.transpose(d); });

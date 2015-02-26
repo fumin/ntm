@@ -144,14 +144,11 @@ func ForwardBackward(c Controller, in, out [][]float64) []*NTM {
 
 func Loss(output [][]float64, ms []*NTM) float64 {
 	var l float64 = 0
-	okt := len(output) - ((len(output) - 2) / 2)
 	for t := 0; t < len(output); t++ {
 		for i := 0; i < len(output[t]); i++ {
 			y := output[t][i]
 			p := ms[t].Controller.Y()[i].Val
-			if t >= okt {
-				l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
-			}
+			l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
 		}
 	}
 	return -l

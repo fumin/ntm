@@ -75,11 +75,14 @@ var rootTmpl = template.Must(template.New("").Parse(`
 <html>
 <head>
   <script type="text/javascript" src="http://d3js.org/d3.v3.js"></script>
-  <script type="text/javascript" src="http://d3js.org/colorbrewer.v1.js"></script>
 </head>
 <body>
 <script type="text/javascript">
 var page = {{.}};
+
+var colorbrewer = {};
+colorbrewer.RdYlBu = {};
+colorbrewer.RdYlBu[9] = ["#d73027","#f46d43","#fdae61","#fee090","#ffffbf","#e0f3f8","#abd9e9","#74add1","#4575b4"];
 
 // palette draws a color palette explaining that 0.0 maps to blue and 1.0 maps to red.
 function palette(parent) {
@@ -87,8 +90,8 @@ function palette(parent) {
     return [{"text": ""}, {"bgcolor": d}];
   });
   matrix[0][0].text = "1.0";
-  matrix[4][0].text = "0.5";
-  matrix[8][0].text = "0.0";
+  matrix[(colorbrewer.RdYlBu[9].length-1) / 2][0].text = "0.5";
+  matrix[colorbrewer.RdYlBu[9].length-1][0].text = "0.0";
   var table = parent.append("table")
   var tr = table.selectAll("tr").data(matrix).
     enter().append("tr");
@@ -124,8 +127,8 @@ var run = allRuns.selectAll("div").
 run.append("h4").text(function(d){ return "Sequence length: "+d.SeqLen+", bits-per-char: "+d.BitsPerSeq.toPrecision(3); });
 
 // Draw x along with a palette.
-var x = run.append("table").append("tr");
-imshow(x.append("td"), function(d){ return d3.transpose(d.X); });
+var x = run.append("table").style("border-spacing", "0px").append("tr");
+imshow(x.append("td").style("padding-left", "0px"), function(d){ return d3.transpose(d.X); });
 palette(x.append("td"));
 
 // Draw predictions
