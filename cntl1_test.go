@@ -33,7 +33,7 @@ func TestController1(t *testing.T) {
 }
 
 func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float64, []*Head) {
-	c := c1.(*Controller1)
+	c := c1.(*controller1)
 	h1Size := len(c.Wh1r)
 	h1 := make([]float64, h1Size)
 	for i := 0; i < len(h1); i++ {
@@ -79,9 +79,9 @@ func loss(c Controller, forward func(Controller, [][]float64, []float64) ([]floa
 	// Initialize memory as in the function ForwardBackward
 	mem := c.Mtm1BiasV().Top
 	wtm1Bs := c.Wtm1BiasV()
-	wtm1s := make([]*Refocus, c.NumHeads())
+	wtm1s := make([]*refocus, c.NumHeads())
 	for i := range wtm1s {
-		wtm1s[i] = &Refocus{Top: make([]Unit, c.MemoryN())}
+		wtm1s[i] = &refocus{Top: make([]Unit, c.MemoryN())}
 		var sum float64 = 0
 		for j := range wtm1Bs[i] {
 			wtm1s[i].Top[j].Val = math.Exp(wtm1Bs[i][j].Top.Val)
@@ -154,10 +154,10 @@ func transformMemFloat64(memFloat64 [][]float64) [][]Unit {
 	return mem
 }
 
-func transformWSFloat64(wsFloat64 [][]float64) []*Refocus {
-	wtm1s := make([]*Refocus, len(wsFloat64))
+func transformWSFloat64(wsFloat64 [][]float64) []*refocus {
+	wtm1s := make([]*refocus, len(wsFloat64))
 	for i := 0; i < len(wtm1s); i++ {
-		wtm1s[i] = &Refocus{Top: make([]Unit, len(wsFloat64[i]))}
+		wtm1s[i] = &refocus{Top: make([]Unit, len(wsFloat64[i]))}
 		for j := 0; j < len(wtm1s[i].Top); j++ {
 			wtm1s[i].Top[j].Val = wsFloat64[i][j]
 		}

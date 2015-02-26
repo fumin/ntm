@@ -4,9 +4,10 @@ import (
 	"fmt"
 )
 
+// A Unit is a node in a neural network, containing fields that are essential to efficiently compute gradients in the backward pass of a stochastic gradient descent training process.
 type Unit struct {
-	Val  float64
-	Grad float64
+	Val  float64 // value at node
+	Grad float64 // gradient at node
 }
 
 func (u Unit) String() string {

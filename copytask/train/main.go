@@ -116,7 +116,7 @@ func printDebug(y [][]float64, machines []*ntm.NTM) {
 
 	log.Printf("pred: %s", ntm.Sprint2(ntm.Predictions(machines)))
 
-	n := len(machines[0].Circuit.WM.Top)
+	n := machines[0].Controller.MemoryN()
 	//outputT := len(machines) - (len(machines) - 2) / 2
 	outputT := 0
 	for t := outputT; t < len(machines); t++ {

@@ -6,7 +6,7 @@ import (
 	"math"
 )
 
-type Similarity struct {
+type similarityCircuit struct {
 	U   []Unit
 	V   []Unit
 	Top Unit
@@ -16,8 +16,8 @@ type Similarity struct {
 	Vnorm float64
 }
 
-func NewSimilarity(u, v []Unit) *Similarity {
-	s := Similarity{
+func newSimilarityCircuit(u, v []Unit) *similarityCircuit {
+	s := similarityCircuit{
 		U: u,
 		V: v,
 	}
@@ -36,7 +36,7 @@ func NewSimilarity(u, v []Unit) *Similarity {
 	return &s
 }
 
-func (s *Similarity) Backward() {
+func (s *similarityCircuit) Backward() {
 	uvuu := s.UV / (s.Unorm * s.Unorm)
 	uvvv := s.UV / (s.Vnorm * s.Vnorm)
 	uvg := s.Top.Grad / (s.Unorm * s.Vnorm)
@@ -47,16 +47,16 @@ func (s *Similarity) Backward() {
 	}
 }
 
-type BetaSimilarity struct {
+type betaSimilarity struct {
 	Beta *Unit // Beta is assumed to be in the range (-Inf, Inf)
-	S    *Similarity
+	S    *similarityCircuit
 	Top  Unit
 
 	b float64
 }
 
-func NewBetaSimilarity(beta *Unit, s *Similarity) *BetaSimilarity {
-	bs := BetaSimilarity{
+func newBetaSimilarity(beta *Unit, s *similarityCircuit) *betaSimilarity {
+	bs := betaSimilarity{
 		Beta: beta,
 		S:    s,
 		b:    math.Exp(beta.Val),
@@ -65,18 +65,18 @@ func NewBetaSimilarity(beta *Unit, s *Similarity) *BetaSimilarity {
 	return &bs
 }
 
-func (bs *BetaSimilarity) Backward() {
+func (bs *betaSimilarity) Backward() {
 	bs.Beta.Grad += bs.S.Top.Val * bs.b * bs.Top.Grad
 	bs.S.Top.Grad += bs.b * bs.Top.Grad
 }
 
-type ContentAddressing struct {
-	Units []*BetaSimilarity
+type contentAddressing struct {
+	Units []*betaSimilarity
 	Top   []Unit
 }
 
-func NewContentAddressing(units []*BetaSimilarity) *ContentAddressing {
-	s := ContentAddressing{
+func newContentAddressing(units []*betaSimilarity) *contentAddressing {
+	s := contentAddressing{
 		Units: units,
 		Top:   make([]Unit, len(units)),
 	}
@@ -98,7 +98,7 @@ func NewContentAddressing(units []*BetaSimilarity) *ContentAddressing {
 	return &s
 }
 
-func (s *ContentAddressing) Backward() {
+func (s *contentAddressing) Backward() {
 	var gv float64 = 0
 	for _, top := range s.Top {
 		gv += top.Grad * top.Val
@@ -108,15 +108,15 @@ func (s *ContentAddressing) Backward() {
 	}
 }
 
-type GatedWeighting struct {
+type gatedWeighting struct {
 	G    *Unit
-	WC   *ContentAddressing
-	Wtm1 *Refocus // the weights at time t-1
+	WC   *contentAddressing
+	Wtm1 *refocus // the weights at time t-1
 	Top  []Unit
 }
 
-func NewGatedWeighting(g *Unit, wc *ContentAddressing, wtm1 *Refocus) *GatedWeighting {
-	wg := GatedWeighting{
+func newGatedWeighting(g *Unit, wc *contentAddressing, wtm1 *refocus) *gatedWeighting {
+	wg := gatedWeighting{
 		G:    g,
 		WC:   wc,
 		Wtm1: wtm1,
@@ -129,7 +129,7 @@ func NewGatedWeighting(g *Unit, wc *ContentAddressing, wtm1 *Refocus) *GatedWeig
 	return &wg
 }
 
-func (wg *GatedWeighting) Backward() {
+func (wg *gatedWeighting) Backward() {
 	gt := Sigmoid(wg.G.Val)
 
 	var grad float64 = 0
@@ -147,15 +147,15 @@ func (wg *GatedWeighting) Backward() {
 	}
 }
 
-type ShiftedWeighting struct {
+type shiftedWeighting struct {
 	S   *Unit
 	Z   float64
-	WG  *GatedWeighting
+	WG  *gatedWeighting
 	Top []Unit
 }
 
-func NewShiftedWeighting(s *Unit, wg *GatedWeighting) *ShiftedWeighting {
-	sw := ShiftedWeighting{
+func newShiftedWeighting(s *Unit, wg *gatedWeighting) *shiftedWeighting {
+	sw := shiftedWeighting{
 		S:   s,
 		WG:  wg,
 		Top: make([]Unit, len(wg.Top)),
@@ -183,7 +183,7 @@ func NewShiftedWeighting(s *Unit, wg *GatedWeighting) *ShiftedWeighting {
 	return &sw
 }
 
-func (sw *ShiftedWeighting) Backward() {
+func (sw *shiftedWeighting) Backward() {
 	var grad float64 = 0
 	n := len(sw.WG.Top)
 	for i := 0; i < len(sw.Top); i++ {
@@ -202,16 +202,16 @@ func (sw *ShiftedWeighting) Backward() {
 	}
 }
 
-type Refocus struct {
+type refocus struct {
 	Gamma *Unit
-	SW    *ShiftedWeighting
+	SW    *shiftedWeighting
 	Top   []Unit
 
 	g float64
 }
 
-func NewRefocus(gamma *Unit, sw *ShiftedWeighting) *Refocus {
-	rf := Refocus{
+func newRefocus(gamma *Unit, sw *shiftedWeighting) *refocus {
+	rf := refocus{
 		Gamma: gamma,
 		SW:    sw,
 		Top:   make([]Unit, len(sw.Top)),
@@ -232,7 +232,7 @@ func NewRefocus(gamma *Unit, sw *ShiftedWeighting) *Refocus {
 	return &rf
 }
 
-func (rf *Refocus) Backward() {
+func (rf *refocus) Backward() {
 	for i, sw := range rf.SW.Top {
 		if sw.Val < machineEpsilon {
 			continue
@@ -273,14 +273,14 @@ func (rf *Refocus) Backward() {
 	rf.Gamma.Grad += grad
 }
 
-type Read struct {
-	W      *Refocus
-	Memory *WrittenMemory
+type memRead struct {
+	W      *refocus
+	Memory *writtenMemory
 	Top    []Unit
 }
 
-func NewRead(w *Refocus, memory *WrittenMemory) *Read {
-	r := Read{
+func newMemRead(w *refocus, memory *writtenMemory) *memRead {
+	r := memRead{
 		W:      w,
 		Memory: memory,
 		Top:    make([]Unit, len(memory.Top[0])),
@@ -298,7 +298,7 @@ func NewRead(w *Refocus, memory *WrittenMemory) *Read {
 	return &r
 }
 
-func (r *Read) Backward() {
+func (r *memRead) Backward() {
 	for i := 0; i < len(r.W.Top); i++ {
 		var grad float64 = 0
 		for j := 0; j < len(r.Top); j++ {
@@ -314,10 +314,10 @@ func (r *Read) Backward() {
 	}
 }
 
-type WrittenMemory struct {
-	Ws    []*Refocus
+type writtenMemory struct {
+	Ws    []*refocus
 	Heads []*Head        // We actually need only the erase and add vectors.
-	Mtm1  *WrittenMemory // memory at time t-1
+	Mtm1  *writtenMemory // memory at time t-1
 	Top   [][]Unit
 
 	erase    [][]float64
@@ -325,8 +325,8 @@ type WrittenMemory struct {
 	erasures [][]float64
 }
 
-func NewWrittenMemory(ws []*Refocus, heads []*Head, mtm1 *WrittenMemory) *WrittenMemory {
-	wm := WrittenMemory{
+func newWrittenMemory(ws []*refocus, heads []*Head, mtm1 *writtenMemory) *writtenMemory {
+	wm := writtenMemory{
 		Ws:    ws,
 		Heads: heads,
 		Mtm1:  mtm1,
@@ -364,7 +364,7 @@ func NewWrittenMemory(ws []*Refocus, heads []*Head, mtm1 *WrittenMemory) *Writte
 	return &wm
 }
 
-func (wm *WrittenMemory) Backward() {
+func (wm *writtenMemory) Backward() {
 	// Gradient of W
 	var grad float64 = 0
 	for i, weights := range wm.Ws {
@@ -439,35 +439,35 @@ func (wm *WrittenMemory) Backward() {
 	}
 }
 
-type Circuit struct {
-	W  []*Refocus
-	R  []*Read
-	WM *WrittenMemory
+type memOp struct {
+	W  []*refocus
+	R  []*memRead
+	WM *writtenMemory
 }
 
-func NewCircuit(heads []*Head, mtm1 *WrittenMemory) *Circuit {
-	circuit := Circuit{
-		R: make([]*Read, len(heads)),
+func newMemOp(heads []*Head, mtm1 *writtenMemory) *memOp {
+	circuit := memOp{
+		R: make([]*memRead, len(heads)),
 	}
-	circuit.W = make([]*Refocus, len(heads))
+	circuit.W = make([]*refocus, len(heads))
 	for wi, h := range heads {
-		ss := make([]*BetaSimilarity, len(mtm1.Top))
+		ss := make([]*betaSimilarity, len(mtm1.Top))
 		for i := 0; i < len(mtm1.Top); i++ {
-			s := NewSimilarity(h.K(), mtm1.Top[i])
-			ss[i] = NewBetaSimilarity(h.Beta(), s)
+			s := newSimilarityCircuit(h.K(), mtm1.Top[i])
+			ss[i] = newBetaSimilarity(h.Beta(), s)
 		}
-		wc := NewContentAddressing(ss)
-		wg := NewGatedWeighting(h.G(), wc, h.Wtm1)
-		ws := NewShiftedWeighting(h.S(), wg)
-		circuit.W[wi] = NewRefocus(h.Gamma(), ws)
-		circuit.R[wi] = NewRead(circuit.W[wi], mtm1)
+		wc := newContentAddressing(ss)
+		wg := newGatedWeighting(h.G(), wc, h.Wtm1)
+		ws := newShiftedWeighting(h.S(), wg)
+		circuit.W[wi] = newRefocus(h.Gamma(), ws)
+		circuit.R[wi] = newMemRead(circuit.W[wi], mtm1)
 	}
 
-	circuit.WM = NewWrittenMemory(circuit.W, heads, mtm1)
+	circuit.WM = newWrittenMemory(circuit.W, heads, mtm1)
 	return &circuit
 }
 
-func (c *Circuit) Backward() {
+func (c *memOp) Backward() {
 	for _, r := range c.R {
 		r.Backward()
 	}
@@ -485,7 +485,7 @@ func (c *Circuit) Backward() {
 	}
 }
 
-func (c *Circuit) ReadVals() [][]float64 {
+func (c *memOp) ReadVals() [][]float64 {
 	res := MakeTensor2(len(c.R), len(c.R[0].Top))
 	for i := 0; i < len(res); i++ {
 		for j := 0; j < len(res[i]); j++ {
@@ -495,7 +495,7 @@ func (c *Circuit) ReadVals() [][]float64 {
 	return res
 }
 
-func (c *Circuit) WrittenMemoryVals() [][]float64 {
+func (c *memOp) WrittenMemoryVals() [][]float64 {
 	res := MakeTensor2(len(c.WM.Top), len(c.WM.Top[0]))
 	for i := 0; i < len(res); i++ {
 		for j := 0; j < len(res[i]); j++ {

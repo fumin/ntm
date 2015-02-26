@@ -10,11 +10,12 @@ const (
 	machineEpsilonSqrt = 1e-8 // math.Sqrt(machineEpsilon)
 )
 
+// Sigmoid computes 1 / (1 + math.Exp(-x))
 func Sigmoid(x float64) float64 {
 	return 1.0 / (1 + math.Exp(-x))
 }
 
-func similarity(u, v []float64) float64 {
+func cosineSimilarity(u, v []float64) float64 {
 	var sum float64 = 0
 	var usum float64 = 0
 	var vsum float64 = 0
@@ -26,6 +27,7 @@ func similarity(u, v []float64) float64 {
 	return sum / math.Sqrt(usum*vsum)
 }
 
+// MakeTensor2 makes a 2 dimensional tensor.
 func MakeTensor2(n, m int) [][]float64 {
 	t := make([][]float64, n)
 	for i := 0; i < len(t); i++ {
@@ -34,6 +36,7 @@ func MakeTensor2(n, m int) [][]float64 {
 	return t
 }
 
+// MakeTensor3 makes a 3 dimensional tensor.
 func MakeTensor3(n, m, p int) [][][]float64 {
 	t := make([][][]float64, n)
 	for i := 0; i < len(t); i++ {
@@ -42,6 +45,7 @@ func MakeTensor3(n, m, p int) [][][]float64 {
 	return t
 }
 
+// Sprint2 pretty prints a 2 dimensional tensor.
 func Sprint2(t [][]float64) string {
 	s := "["
 	for _, t1 := range t {

@@ -19,7 +19,7 @@ const (
 func TestCircuit(t *testing.T) {
 	n := 3
 	m := 2
-	memory := &WrittenMemory{Top: makeTensorUnit2(n, m)}
+	memory := &writtenMemory{Top: makeTensorUnit2(n, m)}
 	for i := 0; i < len(memory.Top); i++ {
 		for j := 0; j < len(memory.Top[i]); j++ {
 			memory.Top[i][j].Val = rand.Float64()
@@ -37,7 +37,7 @@ func TestCircuit(t *testing.T) {
 	heads[0].Beta().Val = 0.137350
 	heads[0].Gamma().Val = 1.9876
 
-	circuit := NewCircuit(heads, memory)
+	circuit := newMemOp(heads, memory)
 	for i := 0; i < len(circuit.W); i++ {
 		for j := 0; j < len(circuit.W[i].Top); j++ {
 			if i == 0 && j == 0 {
@@ -81,7 +81,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		wc := make([]float64, len(memory))
 		var sum float64 = 0
 		for j := 0; j < len(wc); j++ {
-			wc[j] = math.Exp(beta * similarity(unitVals(h.K()), unitVals(memory[j])))
+			wc[j] = math.Exp(beta * cosineSimilarity(unitVals(h.K()), unitVals(memory[j])))
 			sum += wc[j]
 		}
 		for j := 0; j < len(wc); j++ {
@@ -319,7 +319,7 @@ func checkGamma(t *testing.T, heads []*Head, memory [][]Unit, ax float64) {
 	}
 }
 
-func randomRefocus(n int) *Refocus {
+func randomRefocus(n int) *refocus {
 	w := make([]Unit, n)
 	var sum float64 = 0
 	for i := 0; i < len(w); i++ {
@@ -329,5 +329,5 @@ func randomRefocus(n int) *Refocus {
 	for i := 0; i < len(w); i++ {
 		w[i].Val = w[i].Val / sum
 	}
-	return &Refocus{Top: w}
+	return &refocus{Top: w}
 }

@@ -117,18 +117,5 @@ func handleHTTP(c ntm.Controller, losses []float64, doPrint *bool) {
 func printDebug(x, y [][]float64, machines []*ntm.NTM) {
 	log.Printf("x: %+v", x)
 	log.Printf("y: %+v", y)
-
 	log.Printf("pred: %s", ntm.Sprint2(ntm.Predictions(machines)))
-
-	// n := len(machines[0].Circuit.WM.Top)
-	// //outputT := len(machines) - (len(machines) - 2) / 2
-	// outputT := 0
-	// for t := outputT; t < len(machines); t++ {
-	// 	h := machines[t].Controller.Heads()[0]
-	// 	beta := math.Exp(h.Beta().Val)
-	// 	g := ntm.Sigmoid(h.G().Val)
-	// 	shift := math.Mod(2*ntm.Sigmoid(h.S().Val)-1+float64(n), float64(n))
-	// 	gamma := math.Log(math.Exp(h.Gamma().Val)+1) + 1
-	// 	log.Printf("beta: %.3g(%v), g: %.3g(%v), s: %.3g(%v), gamma: %.3g(%v), erase: %+v, add: %+v, k: %+v", beta, h.Beta(), g, h.G(), shift, h.S(), gamma, h.Gamma(), h.EraseVector(), h.AddVector(), h.K())
-	// }
 }

@@ -4,9 +4,9 @@ import (
 	"fmt"
 )
 
-type Controller1 struct {
-	wtm1s      [][]*BetaSimilarity
-	mtm1       *WrittenMemory
+type controller1 struct {
+	wtm1s      [][]*betaSimilarity
+	mtm1       *writtenMemory
 	Wh1r       [][][]Unit
 	Wh1x       [][]Unit
 	Wh1b       []Unit
@@ -14,7 +14,7 @@ type Controller1 struct {
 	Wuh1       [][][]Unit
 	numWeights int
 
-	Reads []*Read
+	Reads []*memRead
 	X     []float64
 
 	H1 []Unit
@@ -23,12 +23,14 @@ type Controller1 struct {
 	heads []*Head
 }
 
-func NewEmptyController1(xSize, ySize, h1Size, numHeads, n, m int) *Controller1 {
+// NewEmptyController1 returns a new controller1 which is a single layer feedforward network.
+// The returned controller1 is empty in that all its network weights are initialized as 0.
+func NewEmptyController1(xSize, ySize, h1Size, numHeads, n, m int) *controller1 {
 	h := NewHead(m)
 	headUnitsSize := len(h.units)
-	c := Controller1{
-		wtm1s: make([][]*BetaSimilarity, numHeads),
-		mtm1:  &WrittenMemory{Top: makeTensorUnit2(n, m)},
+	c := controller1{
+		wtm1s: make([][]*betaSimilarity, numHeads),
+		mtm1:  &writtenMemory{Top: makeTensorUnit2(n, m)},
 		Wh1r:  makeTensorUnit3(h1Size, numHeads, m),
 		Wh1x:  makeTensorUnit2(h1Size, xSize),
 		Wh1b:  make([]Unit, h1Size),
@@ -36,25 +38,25 @@ func NewEmptyController1(xSize, ySize, h1Size, numHeads, n, m int) *Controller1 
 		Wuh1:  makeTensorUnit3(numHeads, headUnitsSize, h1Size+1),
 	}
 	for i := range c.wtm1s {
-		c.wtm1s[i] = make([]*BetaSimilarity, n)
+		c.wtm1s[i] = make([]*betaSimilarity, n)
 		for j := range c.wtm1s[i] {
-			c.wtm1s[i][j] = &BetaSimilarity{}
+			c.wtm1s[i][j] = &betaSimilarity{}
 		}
 	}
 	c.numWeights = numHeads*n + n*m + h1Size*numHeads*m + h1Size*xSize + h1Size + ySize*(h1Size+1) + numHeads*headUnitsSize*(h1Size+1)
 	return &c
 }
 
-func (c *Controller1) Heads() []*Head {
+func (c *controller1) Heads() []*Head {
 	return c.heads
 }
 
-func (c *Controller1) Y() []Unit {
+func (c *controller1) Y() []Unit {
 	return c.y
 }
 
-func (old *Controller1) Forward(reads []*Read, x []float64) Controller {
-	c := Controller1{
+func (old *controller1) Forward(reads []*memRead, x []float64) Controller {
+	c := controller1{
 		Wh1r:       old.Wh1r,
 		Wh1x:       old.Wh1x,
 		Wh1b:       old.Wh1b,
@@ -110,7 +112,7 @@ func (old *Controller1) Forward(reads []*Read, x []float64) Controller {
 	return &c
 }
 
-func (c *Controller1) Backward() {
+func (c *controller1) Backward() {
 	for j, y := range c.y {
 		for i, wyh1 := range c.Wyh1[j][0:len(c.H1)] {
 			c.H1[i].Grad += wyh1.Val * y.Grad
@@ -174,15 +176,15 @@ func (c *Controller1) Backward() {
 	}
 }
 
-func (c *Controller1) Wtm1BiasV() [][]*BetaSimilarity {
+func (c *controller1) Wtm1BiasV() [][]*betaSimilarity {
 	return c.wtm1s
 }
 
-func (c *Controller1) Mtm1BiasV() *WrittenMemory {
+func (c *controller1) Mtm1BiasV() *writtenMemory {
 	return c.mtm1
 }
 
-func (c *Controller1) Weights(f func(*Unit)) {
+func (c *controller1) Weights(f func(*Unit)) {
 	for _, wtm1 := range c.wtm1s {
 		for _, w := range wtm1 {
 			f(&w.Top)
@@ -202,7 +204,7 @@ func (c *Controller1) Weights(f func(*Unit)) {
 
 // WeightsVerbose is similar to Weights, but with additional information passed in.
 // Avoid using this function except for debugging, as it calls fmt.Sprintf many times which is a performance hog.
-func (c *Controller1) WeightsVerbose(f func(string, *Unit)) {
+func (c *controller1) WeightsVerbose(f func(string, *Unit)) {
 	for i, wtm1 := range c.wtm1s {
 		for j, w := range wtm1 {
 			f(fmt.Sprintf("wtm1[%d][%d]", i, j), &w.Top)
@@ -227,18 +229,18 @@ func (c *Controller1) WeightsVerbose(f func(string, *Unit)) {
 	doUnit1(c.Wh1b, func(ids []int, u *Unit) { f(tagify("Wh1b", ids), u) })
 }
 
-func (c *Controller1) NumWeights() int {
+func (c *controller1) NumWeights() int {
 	return c.numWeights
 }
 
-func (c *Controller1) NumHeads() int {
+func (c *controller1) NumHeads() int {
 	return len(c.Wuh1)
 }
 
-func (c *Controller1) MemoryN() int {
+func (c *controller1) MemoryN() int {
 	return len(c.mtm1.Top)
 }
 
-func (c *Controller1) MemoryM() int {
+func (c *controller1) MemoryM() int {
 	return len(c.Wh1r[0][0])
 }
