@@ -195,11 +195,11 @@ func (c *controller1) Weights(f func(*Unit)) {
 			f(&row[i])
 		}
 	}
-	doUnit2(c.Wyh1, func(ids []int, u *Unit) { f(u) })
-	doUnit3(c.Wuh1, func(ids []int, u *Unit) { f(u) })
-	doUnit3(c.Wh1r, func(ids []int, u *Unit) { f(u) })
-	doUnit2(c.Wh1x, func(ids []int, u *Unit) { f(u) })
-	doUnit1(c.Wh1b, func(ids []int, u *Unit) { f(u) })
+	doUnit2(c.Wyh1, func(u *Unit) { f(u) })
+	doUnit3(c.Wuh1, func(u *Unit) { f(u) })
+	doUnit3(c.Wh1r, func(u *Unit) { f(u) })
+	doUnit2(c.Wh1x, func(u *Unit) { f(u) })
+	doUnit1(c.Wh1b, func(u *Unit) { f(u) })
 }
 
 // WeightsVerbose is similar to Weights, but with additional information passed in.
@@ -222,11 +222,11 @@ func (c *controller1) WeightsVerbose(f func(string, *Unit)) {
 		}
 		return s
 	}
-	doUnit2(c.Wyh1, func(ids []int, u *Unit) { f(tagify("Wyh1", ids), u) })
-	doUnit3(c.Wuh1, func(ids []int, u *Unit) { f(tagify("Wuh1", ids), u) })
-	doUnit3(c.Wh1r, func(ids []int, u *Unit) { f(tagify("Wh1r", ids), u) })
-	doUnit2(c.Wh1x, func(ids []int, u *Unit) { f(tagify("Wh1x", ids), u) })
-	doUnit1(c.Wh1b, func(ids []int, u *Unit) { f(tagify("Wh1b", ids), u) })
+	doUnit2Indices(c.Wyh1, func(ids []int, u *Unit) { f(tagify("Wyh1", ids), u) })
+	doUnit3Indices(c.Wuh1, func(ids []int, u *Unit) { f(tagify("Wuh1", ids), u) })
+	doUnit3Indices(c.Wh1r, func(ids []int, u *Unit) { f(tagify("Wh1r", ids), u) })
+	doUnit2Indices(c.Wh1x, func(ids []int, u *Unit) { f(tagify("Wh1x", ids), u) })
+	doUnit1Indices(c.Wh1b, func(ids []int, u *Unit) { f(tagify("Wh1b", ids), u) })
 }
 
 func (c *controller1) NumWeights() int {

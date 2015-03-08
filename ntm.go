@@ -254,10 +254,16 @@ func (r *RMSProp) Train(x, y [][]float64, a, b, c, d float64) []*NTM {
 	machines := ForwardBackward(r.C, x, y)
 	i := 0
 	r.C.Weights(func(w *Unit) {
-		r.N[i] = a*r.N[i] + (1-a)*w.Grad*w.Grad
-		r.G[i] = a*r.G[i] + (1-a)*w.Grad
-		r.D[i] = b*r.D[i] - c*w.Grad/math.Sqrt(r.N[i]-r.G[i]*r.G[i]+d)
-		w.Val += r.D[i]
+		rN := a*r.N[i] + (1-a)*w.Grad*w.Grad
+		r.N[i] = rN
+
+		rG := a*r.G[i] + (1-a)*w.Grad
+		r.G[i] = rG
+
+		rD := b*r.D[i] - c*w.Grad/math.Sqrt(rN-rG*rG+d)
+		r.D[i] = rD
+
+		w.Val += rD
 		i++
 	})
 	return machines
