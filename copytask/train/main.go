@@ -59,7 +59,7 @@ func main() {
 	rand.Seed(seed)
 	log.Printf("seed: %d", seed)
 
-	vectorSize := 8
+	vectorSize := 5000
 	h1Size := 100
 	numHeads := 1
 	n := 128
@@ -82,6 +82,12 @@ func main() {
 			bpc := l / float64(len(y)*len(y[0]))
 			losses = append(losses, bpc)
 			log.Printf("%d, bpc: %f, seq length: %d", i, bpc, len(y))
+		}
+
+		if i > 60 {
+			return
+		} else {
+			log.Printf("%d", i)
 		}
 
 		handleHTTP(c, losses, &doPrint)
