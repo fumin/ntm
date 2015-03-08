@@ -38,20 +38,38 @@ func unitVals(units []Unit) []float64 {
 	return v
 }
 
-func doUnit1(t []Unit, f func([]int, *Unit)) {
+func doUnit1(t []Unit, f func(*Unit)) {
+	for i := range t {
+		f(&t[i])
+	}
+}
+
+func doUnit2(t [][]Unit, f func(*Unit)) {
+	for _, v := range t {
+		doUnit1(v, f)
+	}
+}
+
+func doUnit3(t [][][]Unit, f func(*Unit)) {
+	for _, v := range t {
+		doUnit2(v, f)
+	}
+}
+
+func doUnit1Indices(t []Unit, f func([]int, *Unit)) {
 	for i := 0; i < len(t); i++ {
 		f([]int{i}, &t[i])
 	}
 }
 
-func doUnit2(t [][]Unit, f func([]int, *Unit)) {
+func doUnit2Indices(t [][]Unit, f func([]int, *Unit)) {
 	for i, a := range t {
-		doUnit1(a, func(ids []int, u *Unit) { f(append(ids, i), u) })
+		doUnit1Indices(a, func(ids []int, u *Unit) { f(append(ids, i), u) })
 	}
 }
 
-func doUnit3(t [][][]Unit, f func([]int, *Unit)) {
+func doUnit3Indices(t [][][]Unit, f func([]int, *Unit)) {
 	for i, a := range t {
-		doUnit2(a, func(ids []int, u *Unit) { f(append(ids, i), u) })
+		doUnit2Indices(a, func(ids []int, u *Unit) { f(append(ids, i), u) })
 	}
 }
