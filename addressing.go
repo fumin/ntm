@@ -232,23 +232,20 @@ func newRefocus(gamma *Unit, sw *shiftedWeighting) *refocus {
 	return &rf
 }
 
-func (rf *refocus) Backward() {
+func (rf *refocus) backwardSW() {
+	var topGV float64 = 0
+	for _, top := range rf.Top {
+		topGV += top.Grad * top.Val
+	}
 	for i, sw := range rf.SW.Top {
 		if sw.Val < machineEpsilon {
 			continue
 		}
-		var grad float64 = 0
-		for j, top := range rf.Top {
-			if j == i {
-				grad += top.Grad * (1 - top.Val)
-			} else {
-				grad -= top.Grad * top.Val
-			}
-		}
-		grad = grad * rf.g / sw.Val * rf.Top[i].Val
-		rf.SW.Top[i].Grad += grad
+		rf.SW.Top[i].Grad += (rf.Top[i].Grad - topGV) * rf.g / sw.Val * rf.Top[i].Val
 	}
+}
 
+func (rf *refocus) backwardGamma() {
 	lns := make([]float64, len(rf.SW.Top))
 	var lnexp float64 = 0
 	var s float64 = 0
@@ -271,6 +268,11 @@ func (rf *refocus) Backward() {
 	}
 	grad = grad / (1 + math.Exp(-rf.Gamma.Val))
 	rf.Gamma.Grad += grad
+}
+
+func (rf *refocus) Backward() {
+	rf.backwardSW()
+	rf.backwardGamma()
 }
 
 type memRead struct {
@@ -299,17 +301,18 @@ func newMemRead(w *refocus, memory *writtenMemory) *memRead {
 }
 
 func (r *memRead) Backward() {
-	for i := 0; i < len(r.W.Top); i++ {
+	for i, memI := range r.Memory.Top {
 		var grad float64 = 0
-		for j := 0; j < len(r.Top); j++ {
-			grad += r.Top[j].Grad * r.Memory.Top[i][j].Val
+		for j, mem := range memI {
+			grad += r.Top[j].Grad * mem.Val
 		}
 		r.W.Top[i].Grad += grad
 	}
 
-	for i := 0; i < len(r.Memory.Top); i++ {
-		for j := 0; j < len(r.Memory.Top[i]); j++ {
-			r.Memory.Top[i][j].Grad += r.Top[j].Grad * r.W.Top[i].Val
+	for i, memI := range r.Memory.Top {
+		w := r.W.Top[i].Val
+		for j, top := range r.Top {
+			memI[j].Grad += top.Grad * w
 		}
 	}
 }
@@ -364,54 +367,46 @@ func newWrittenMemory(ws []*refocus, heads []*Head, mtm1 *writtenMemory) *writte
 	return &wm
 }
 
-func (wm *writtenMemory) Backward() {
-	// Gradient of W
+func (wm *writtenMemory) backwardWErase() {
 	var grad float64 = 0
 	for i, weights := range wm.Ws {
+		hErase := wm.Heads[i].EraseVector()
 		erase := wm.erase[i]
 		add := wm.add[i]
+		ws := wm.Ws[i]
 		for j, topRow := range wm.Top {
 			mtm1Row := wm.Mtm1.Top[j]
+			erasure := wm.erasures[j]
+			wsj := ws.Top[j].Val
 			grad = 0
-			for k, top := range topRow {
-				mtilt := mtm1Row[k].Val
-				for q, ws := range wm.Ws {
-					if q == i {
-						continue
+			for k, mtm1 := range mtm1Row {
+				mtilt := mtm1.Val
+				e := erase[k]
+				mwe := 1 - wsj*e
+				if math.Abs(mwe) > 1e-6 {
+					mtilt = mtilt * erasure[k] / mwe
+				} else {
+					for q, ws := range wm.Ws {
+						if q == i {
+							continue
+						}
+						mtilt = mtilt * (1 - ws.Top[j].Val*wm.erase[q][k])
 					}
-					mtilt = mtilt * (1 - ws.Top[j].Val*wm.erase[q][k])
 				}
-				grad += (mtilt*(-erase[k]) + add[k]) * top.Grad
+				grad += (mtilt*(-e) + add[k]) * topRow[k].Grad
+				hErase[k].Grad += topRow[k].Grad * mtilt * (-wsj)
 			}
 			weights.Top[j].Grad += grad
 		}
-	}
 
-	// Gradient of Erase vector
-	for k, h := range wm.Heads {
-		hErase := h.EraseVector()
-		erase := wm.erase[k]
-		ws := wm.Ws[k]
-		for i := range hErase {
-			grad = 0
-			for j, topRow := range wm.Top {
-				gErase := wm.Mtm1.Top[j][i].Val
-				for q := range wm.Ws {
-					if q == k {
-						continue
-					}
-					gErase = gErase * (1 - wm.Ws[q].Top[j].Val*wm.erase[q][i])
-				}
-				// Contrary to the rules of math, the order in which these 3 numbers multiply matters...
-				// For example, in the copy task the rate of convergence for rand.Seed(8) differs a lot if an alternative ordering is used.
-				grad += topRow[i].Grad * gErase * (-ws.Top[j].Val)
-			}
-			e := erase[i]
-			hErase[i].Grad += grad * e * (1 - e)
+		for j, e := range erase {
+			hErase[j].Grad *= e * (1 - e)
 		}
 	}
+}
 
-	// Gradient of Add vector
+func (wm *writtenMemory) backwardAdd() {
+	var grad float64
 	for k, h := range wm.Heads {
 		add := wm.add[k]
 		ws := wm.Ws[k]
@@ -425,8 +420,10 @@ func (wm *writtenMemory) Backward() {
 			hAdd[i].Grad += grad * a * (1 - a)
 		}
 	}
+}
 
-	// Gradient of wm.Mtm1
+func (wm *writtenMemory) backwardMtm1() {
+	var grad float64
 	for i, mtm1row := range wm.Mtm1.Top {
 		toprow := wm.Top[i]
 		for j, top := range toprow {
@@ -437,6 +434,12 @@ func (wm *writtenMemory) Backward() {
 			mtm1row[j].Grad += grad * top.Grad
 		}
 	}
+}
+
+func (wm *writtenMemory) Backward() {
+	wm.backwardWErase()
+	wm.backwardAdd()
+	wm.backwardMtm1()
 }
 
 type memOp struct {
