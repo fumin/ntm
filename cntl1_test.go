@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestController1(t *testing.T) {
+func TestLogisticModel(t *testing.T) {
 	times := 10
 	x := MakeTensor2(times, 4)
 	for i := 0; i < len(x); i++ {
@@ -26,11 +26,39 @@ func TestController1(t *testing.T) {
 	numHeads := 2
 	c := NewEmptyController1(len(x[0]), len(y[0]), h1Size, numHeads, n, m)
 	c.Weights(func(u *Unit) { u.Val = 2 * rand.Float64() })
-	ForwardBackward(c, x, y)
 
-	l := loss(c, Controller1Forward, x, y)
-	checkGradients(t, c, Controller1Forward, x, y, l)
+	model := &LogisticModel{Y: y}
+	ForwardBackward(c, x, model)
+	checkGradients(t, c, Controller1Forward, x, model)
 }
+
+func TestMultinomialModel(t *testing.T) {
+	times := 10
+	x := MakeTensor2(times, 4)
+	for i := 0; i < len(x); i++ {
+		for j := 0; j < len(x[i]); j++ {
+			x[i][j] = rand.Float64()
+		}
+	}
+	outputSize := 4
+	y := make([]int, times)
+	for i := range y {
+		y[i] = rand.Intn(outputSize)
+	}
+	n := 3
+	m := 2
+	h1Size := 3
+	numHeads := 2
+	c := NewEmptyController1(len(x[0]), outputSize, h1Size, numHeads, n, m)
+	c.Weights(func(u *Unit) { u.Val = 2 * rand.Float64() })
+
+	model := &MultinomialModel{Y: y}
+	ForwardBackward(c, x, model)
+	checkGradients(t, c, Controller1Forward, x, model)
+}
+
+// A ControllerForward is a ground truth implementation of the forward pass of a controller.
+type ControllerForward func(c Controller, reads [][]float64, x []float64) (prediction []float64, heads []*Head)
 
 func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float64, []*Head) {
 	c := c1.(*controller1)
@@ -57,7 +85,7 @@ func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float6
 			v += c.Wyh1[i][j].Val * h1[j]
 		}
 		v += c.Wyh1[i][maxJ].Val
-		prediction[i] = Sigmoid(v)
+		prediction[i] = v
 	}
 	numHeads := len(c.Wh1r[0])
 	m := len(c.Wh1r[0][0])
@@ -75,7 +103,7 @@ func Controller1Forward(c1 Controller, reads [][]float64, x []float64) ([]float6
 	return prediction, heads
 }
 
-func loss(c Controller, forward func(Controller, [][]float64, []float64) ([]float64, []*Head), in, out [][]float64) float64 {
+func loss(c Controller, forward ControllerForward, in [][]float64, model DensityModel) float64 {
 	// Initialize memory as in the function ForwardBackward
 	mem := c.Mtm1BiasV().Top
 	wtm1Bs := c.Wtm1BiasV()
@@ -102,10 +130,11 @@ func loss(c Controller, forward func(Controller, [][]float64, []float64) ([]floa
 		}
 	}
 
-	prediction := make([][]float64, len(out))
+	prediction := make([][]float64, len(in))
 	var heads []*Head
 	for t := 0; t < len(in); t++ {
 		prediction[t], heads = forward(c, reads, in[t])
+		prediction[t] = computeDensity(t, prediction[t], model)
 		for i := 0; i < len(heads); i++ {
 			heads[i].Wtm1 = wtm1s[i]
 		}
@@ -115,24 +144,27 @@ func loss(c Controller, forward func(Controller, [][]float64, []float64) ([]floa
 		mem = transformMemFloat64(memFloat64)
 	}
 
-	var llh float64 = 0 // log likelihood
-	for t := 0; t < len(out); t++ {
-		for i := 0; i < len(out[t]); i++ {
-			p := prediction[t][i]
-			y := out[t][i]
-			llh += y*math.Log(p) + (1-y)*math.Log(1-p)
-		}
-	}
-	return -llh
+	return model.Loss(prediction)
 }
 
-func checkGradients(t *testing.T, c Controller, forward func(Controller, [][]float64, []float64) ([]float64, []*Head), in, out [][]float64, lx float64) {
+func computeDensity(timestep int, pred []float64, model DensityModel) []float64 {
+	units := make([]Unit, len(pred))
+	for j := range units {
+		units[j].Val = pred[j]
+	}
+	model.Model(timestep, units)
+	return UnitVals(units)
+}
+
+func checkGradients(t *testing.T, c Controller, forward ControllerForward, in [][]float64, model DensityModel) {
+	lx := loss(c, forward, in, model)
+
 	c.WeightsVerbose(func(tag string, w *Unit) {
 		x := w.Val
 		h := machineEpsilonSqrt * math.Max(math.Abs(x), 1)
 		xph := x + h
 		w.Val = xph
-		lxph := loss(c, forward, in, out)
+		lxph := loss(c, forward, in, model)
 		w.Val = x
 		grad := (lxph - lx) / (xph - x)
 

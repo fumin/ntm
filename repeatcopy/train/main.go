@@ -74,8 +74,9 @@ func main() {
 	log.Printf("genFunc: %s, seed: %d, numweights: %d, numHeads: %d", genFunc, seed, c.NumWeights(), c.NumHeads())
 	for i := 1; ; i++ {
 		x, y := repeatcopy.G[genFunc](rand.Intn(10)+1, rand.Intn(10)+1)
-		machines := rmsp.Train(x, y, 0.95, 0.5, 1e-3, 1e-3)
-		l := ntm.Loss(y, machines)
+		model := &ntm.LogisticModel{Y: y}
+		machines := rmsp.Train(x, model, 0.95, 0.5, 1e-3, 1e-3)
+		l := model.Loss(ntm.Predictions(machines))
 		if i%1000 == 0 {
 			bpc := l / float64(len(y)*len(y[0]))
 			losses = append(losses, bpc)

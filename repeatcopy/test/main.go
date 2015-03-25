@@ -57,8 +57,9 @@ func main() {
 	runs := make([]Run, 0, len(confs))
 	for _, conf := range confs {
 		x, y := repeatcopy.G[genFunc](conf.Repeat, conf.SeqLen)
-		machines := ntm.ForwardBackward(c, x, y)
-		l := ntm.Loss(y, machines)
+		model := &ntm.LogisticModel{Y: y}
+		machines := ntm.ForwardBackward(c, x, model)
+		l := model.Loss(ntm.Predictions(machines))
 		bps := l / float64(len(y)*len(y[0]))
 		log.Printf("conf: %+v, loss: %f", conf, bps)
 

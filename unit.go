@@ -30,7 +30,8 @@ func makeTensorUnit3(n, m, p int) [][][]Unit {
 	return t
 }
 
-func unitVals(units []Unit) []float64 {
+// UnitVals returns the values of a slice of Units.
+func UnitVals(units []Unit) []float64 {
 	v := make([]float64, 0, len(units))
 	for _, u := range units {
 		v = append(v, u.Val)

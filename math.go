@@ -15,6 +15,13 @@ func Sigmoid(x float64) float64 {
 	return 1.0 / (1 + math.Exp(-x))
 }
 
+func delta(a, b int) float64 {
+	if a == b {
+		return 1
+	}
+	return 0
+}
+
 func cosineSimilarity(u, v []float64) float64 {
 	var sum float64 = 0
 	var usum float64 = 0

@@ -49,8 +49,9 @@ func main() {
 		sampletimes := 100
 		for j := 0; j < sampletimes; j++ {
 			x, y = ngram.GenSeq(prob)
-			machines = ntm.ForwardBackward(c, x, y)
-			l += ntm.Loss(y, machines)
+			model := &ntm.LogisticModel{Y: y}
+			machines = ntm.ForwardBackward(c, x, model)
+			l += model.Loss(ntm.Predictions(machines))
 			if (j+1)%10 == 0 {
 				log.Printf("%d %d %f", i, j+1, l/float64(j+1))
 			}

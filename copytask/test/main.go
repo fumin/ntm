@@ -45,8 +45,9 @@ func main() {
 	runs := make([]Run, 0, len(seqLens))
 	for _, seql := range seqLens {
 		x, y := copytask.GenSeq(seql, vectorSize)
-		machines := ntm.ForwardBackward(c, x, y)
-		l := ntm.Loss(y, machines)
+		model := &ntm.LogisticModel{Y: y}
+		machines := ntm.ForwardBackward(c, x, model)
+		l := model.Loss(ntm.Predictions(machines))
 		bps := l / float64(len(y)*len(y[0]))
 		log.Printf("sequence length: %d, loss: %f", seql, bps)
 

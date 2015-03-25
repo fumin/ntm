@@ -81,7 +81,7 @@ func doAddressing(heads []*Head, memory [][]Unit) (weights [][]float64, reads []
 		wc := make([]float64, len(memory))
 		var sum float64 = 0
 		for j := 0; j < len(wc); j++ {
-			wc[j] = math.Exp(beta * cosineSimilarity(unitVals(h.K()), unitVals(memory[j])))
+			wc[j] = math.Exp(beta * cosineSimilarity(UnitVals(h.K()), UnitVals(memory[j])))
 			sum += wc[j]
 		}
 		for j := 0; j < len(wc); j++ {

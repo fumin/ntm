@@ -99,7 +99,8 @@ type NTM struct {
 	memOp      *memOp
 }
 
-func newNTM(old *NTM, x []float64) *NTM {
+// NewNTM creates a new NTM.
+func NewNTM(old *NTM, x []float64) *NTM {
 	m := NTM{
 		Controller: old.Controller.Forward(old.memOp.R, x),
 	}
@@ -116,37 +117,20 @@ func (m *NTM) backward() {
 }
 
 // ForwardBackward computes a controller's prediction and gradients with respect to the given ground truth input and output values.
-func ForwardBackward(c Controller, in, out [][]float64) []*NTM {
-	// Set memory and head weights to their bias values.
-	wtm1s := make([]*refocus, c.NumHeads())
-	reads := make([]*memRead, c.NumHeads())
-	cas := make([]*contentAddressing, c.NumHeads())
-	for i := range reads {
-		cas[i] = newContentAddressing(c.Wtm1BiasV()[i])
-		wtm1s[i] = &refocus{Top: make([]Unit, c.MemoryN())}
-		for j := range wtm1s[i].Top {
-			wtm1s[i].Top[j].Val = cas[i].Top[j].Val
-		}
-		reads[i] = newMemRead(wtm1s[i], c.Mtm1BiasV())
-	}
+func ForwardBackward(c Controller, in [][]float64, out DensityModel) []*NTM {
+	// Set the empty NTM's memory and head weights to their bias values.
+	empty, reads, cas := MakeEmptyNTM(c)
 	machines := make([]*NTM, len(in))
-	empty := &NTM{
-		Controller: c,
-		memOp:      &memOp{W: wtm1s, R: reads, WM: c.Mtm1BiasV()},
-	}
 
 	// Backpropagation through time.
-	machines[0] = newNTM(empty, in[0])
+	machines[0] = NewNTM(empty, in[0])
 	for t := 1; t < len(in); t++ {
-		machines[t] = newNTM(machines[t-1], in[t])
+		machines[t] = NewNTM(machines[t-1], in[t])
 	}
 	c.Weights(func(u *Unit) { u.Grad = 0 })
 	for t := len(in) - 1; t >= 0; t-- {
 		m := machines[t]
-		y := out[t]
-		for i := 0; i < len(y); i++ {
-			m.Controller.Y()[i].Grad = m.Controller.Y()[i].Val - y[i]
-		}
+		out.Model(t, m.Controller.Y())
 		m.backward()
 	}
 
@@ -162,17 +146,26 @@ func ForwardBackward(c Controller, in, out [][]float64) []*NTM {
 	return machines
 }
 
-// Loss returns the cross-entropy loss of a NTM.
-func Loss(output [][]float64, ms []*NTM) float64 {
-	var l float64 = 0
-	for t := 0; t < len(output); t++ {
-		for i := 0; i < len(output[t]); i++ {
-			y := output[t][i]
-			p := ms[t].Controller.Y()[i].Val
-			l += y*math.Log2(p) + (1-y)*math.Log2(1-p)
+// MakeEmptyNTM makes a NTM with its memory and head weights set to their bias values, based on the controller.
+func MakeEmptyNTM(c Controller) (*NTM, []*memRead, []*contentAddressing) {
+	wtm1s := make([]*refocus, c.NumHeads())
+	reads := make([]*memRead, c.NumHeads())
+	cas := make([]*contentAddressing, c.NumHeads())
+	for i := range reads {
+		cas[i] = newContentAddressing(c.Wtm1BiasV()[i])
+		wtm1s[i] = &refocus{Top: make([]Unit, c.MemoryN())}
+		for j := range wtm1s[i].Top {
+			wtm1s[i].Top[j].Val = cas[i].Top[j].Val
 		}
+		reads[i] = newMemRead(wtm1s[i], c.Mtm1BiasV())
 	}
-	return -l
+
+	empty := &NTM{
+		Controller: c,
+		memOp:      &memOp{W: wtm1s, R: reads, WM: c.Mtm1BiasV()},
+	}
+
+	return empty, reads, cas
 }
 
 // Predictions returns the predictions of a NTM across time.
@@ -180,10 +173,7 @@ func Predictions(machines []*NTM) [][]float64 {
 	pdts := make([][]float64, len(machines))
 	for t := range pdts {
 		y := machines[t].Controller.Y()
-		pdts[t] = make([]float64, len(y))
-		for i, v := range y {
-			pdts[t][i] = v.Val
-		}
+		pdts[t] = UnitVals(y)
 	}
 	return pdts
 }
@@ -219,7 +209,7 @@ func NewSGDMomentum(c Controller) *SGDMomentum {
 	return &s
 }
 
-func (s *SGDMomentum) Train(x, y [][]float64, alpha, mt float64) []*NTM {
+func (s *SGDMomentum) Train(x [][]float64, y DensityModel, alpha, mt float64) []*NTM {
 	machines := ForwardBackward(s.C, x, y)
 	i := 0
 	s.C.Weights(func(w *Unit) {
@@ -250,7 +240,7 @@ func NewRMSProp(c Controller) *RMSProp {
 	return &r
 }
 
-func (r *RMSProp) Train(x, y [][]float64, a, b, c, d float64) []*NTM {
+func (r *RMSProp) Train(x [][]float64, y DensityModel, a, b, c, d float64) []*NTM {
 	machines := ForwardBackward(r.C, x, y)
 	i := 0
 	r.C.Weights(func(w *Unit) {
@@ -267,4 +257,72 @@ func (r *RMSProp) Train(x, y [][]float64, a, b, c, d float64) []*NTM {
 		i++
 	})
 	return machines
+}
+
+// An DensityModel is a model of how the last layer of a network gets transformed into the final output.
+type DensityModel interface {
+	// Model sets the value and gradient of Units of the output layer.
+	Model(t int, yH []Unit)
+	// Loss is the loss definition of this model.
+	Loss(output [][]float64) float64
+}
+
+// A LogisticModel models its outputs as logistic sigmoids.
+type LogisticModel struct {
+	// Y is the strength of the output unit at each time step.
+	Y [][]float64
+}
+
+// Model sets the values and gradients of the output units.
+func (m *LogisticModel) Model(t int, yHs []Unit) {
+	ys := m.Y[t]
+	for i, yh := range yHs {
+		u := Unit{Val: Sigmoid(yh.Val)}
+		u.Grad = u.Val - ys[i]
+		yHs[i] = u
+	}
+}
+
+// Loss returns the cross entropy loss.
+func (m *LogisticModel) Loss(output [][]float64) float64 {
+	var l float64 = 0
+	for t, yh := range output {
+		for i, _ := range yh {
+			p := output[t][i]
+			y := m.Y[t][i]
+			l += y*math.Log(p) + (1-y)*math.Log(1-p)
+		}
+	}
+	return -l
+}
+
+// A MultinomialModel models its outputs as following the multinomial distribution.
+type MultinomialModel struct {
+	// Y is the class of the output at each time step.
+	Y []int
+}
+
+// Model sets the values and gradients of the output units.
+func (m *MultinomialModel) Model(t int, yHs []Unit) {
+	var sum float64 = 0
+	for i, yh := range yHs {
+		v := math.Exp(yh.Val)
+		yHs[i].Val = v
+		sum += v
+	}
+
+	k := m.Y[t]
+	for i, yh := range yHs {
+		u := Unit{Val: yh.Val / sum}
+		u.Grad = u.Val - delta(i, k)
+		yHs[i] = u
+	}
+}
+
+func (m *MultinomialModel) Loss(output [][]float64) float64 {
+	var l float64 = 0
+	for t, yh := range output {
+		l += math.Log(yh[m.Y[t]])
+	}
+	return -l
 }

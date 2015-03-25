@@ -71,7 +71,7 @@ func main() {
 	log.Printf("seed: %d, numweights: %d, numHeads: %d", seed, c.NumWeights(), c.NumHeads())
 	for i := 1; ; i++ {
 		x, y := ngram.GenSeq(ngram.GenProb())
-		machines := rmsp.Train(x, y, 0.95, 0.5, 1e-3, 1e-3)
+		machines := rmsp.Train(x, &ntm.LogisticModel{Y: y}, 0.95, 0.5, 1e-3, 1e-3)
 
 		if i%10000 == 0 {
 			prob := ngram.GenProb()
@@ -79,8 +79,9 @@ func main() {
 			samn := 1000
 			for j := 0; j < samn; j++ {
 				x, y = ngram.GenSeq(prob)
-				machines = ntm.ForwardBackward(c, x, y)
-				l += ntm.Loss(y, machines)
+				model := &ntm.LogisticModel{Y: y}
+				machines = ntm.ForwardBackward(c, x, model)
+				l += model.Loss(ntm.Predictions(machines))
 			}
 			l = l / float64(samn)
 			losses = append(losses, l)

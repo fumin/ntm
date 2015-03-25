@@ -75,9 +75,10 @@ func main() {
 	log.Printf("numweights: %d", c.NumWeights())
 	for i := 1; ; i++ {
 		x, y := copytask.GenSeq(rand.Intn(20)+1, vectorSize)
-		//machines := sgd.Train(x, y, 1e-4, 0.9)
-		machines := rmsp.Train(x, y, 0.95, 0.5, 1e-3, 1e-3)
-		l := ntm.Loss(y, machines)
+		model := &ntm.LogisticModel{Y: y}
+		//machines := sgd.Train(x, model, 1e-4, 0.9)
+		machines := rmsp.Train(x, model, 0.95, 0.5, 1e-3, 1e-3)
+		l := model.Loss(ntm.Predictions(machines))
 		if i%1000 == 0 {
 			bpc := l / float64(len(y)*len(y[0]))
 			losses = append(losses, bpc)

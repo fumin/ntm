@@ -93,7 +93,7 @@ func (old *controller1) Forward(reads []*memRead, x []float64) Controller {
 			v += wyh1ij.Val * c.H1[j].Val
 		}
 		v += c.Wyh1[i][len(c.H1)].Val
-		c.y[i].Val = Sigmoid(v)
+		c.y[i].Val = v
 	}
 	memoryM := len(reads[0].Top)
 	for i, wuh1i := range c.Wuh1 {
