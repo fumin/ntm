@@ -33,13 +33,7 @@ func main() {
 	n := 128
 	m := 20
 	c := ntm.NewEmptyController1(vectorSize+2, vectorSize, h1Size, numHeads, n, m)
-
-	ws := weightsFromFile()
-	i := 0
-	c.Weights(func(u *ntm.Unit) {
-		u.Val = ws[i]
-		i++
-	})
+	copy(c.WeightsVal(), weightsFromFile())
 
 	seqLens := []int{10, 20, 30, 50, 120}
 	runs := make([]Run, 0, len(seqLens))

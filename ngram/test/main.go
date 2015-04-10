@@ -180,14 +180,8 @@ func weightsFromFile(c ntm.Controller) {
 		log.Fatalf("%v", err)
 	}
 	defer f.Close()
-	ws := make([]float64, 0)
+	ws := c.WeightsVal()
 	if err := json.NewDecoder(f).Decode(&ws); err != nil {
 		log.Fatalf("%v", err)
 	}
-
-	i := 0
-	c.Weights(func(u *ntm.Unit) {
-		u.Val = ws[i]
-		i++
-	})
 }

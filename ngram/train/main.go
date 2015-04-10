@@ -46,7 +46,7 @@ func main() {
 	http.HandleFunc("/PrintDebug", func(w http.ResponseWriter, r *http.Request) {
 		printDebugChan <- struct{}{}
 	})
-	port := 8088
+	port := 8087
 	go func() {
 		log.Printf("Listening on port %d", port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
@@ -54,7 +54,7 @@ func main() {
 		}
 	}()
 
-	var seed int64 = 8
+	var seed int64 = 7
 	rand.Seed(seed)
 
 	h1Size := 100
@@ -62,21 +62,24 @@ func main() {
 	n := 128
 	m := 20
 	c := ntm.NewEmptyController1(1, 1, h1Size, numHeads, n, m)
-	c.Weights(func(u *ntm.Unit) { u.Val = 1 * (rand.Float64() - 0.5) })
+	weights := c.WeightsVal()
+	for i := range weights {
+		weights[i] = 1 * (rand.Float64() - 0.5)
+	}
 
 	losses := make([]float64, 0)
 	doPrint := false
 
 	rmsp := ntm.NewRMSProp(c)
-	log.Printf("seed: %d, numweights: %d, numHeads: %d", seed, c.NumWeights(), c.NumHeads())
+	log.Printf("seed: %d, numweights: %d, numHeads: %d", seed, len(c.WeightsVal()), c.NumHeads())
 	for i := 1; ; i++ {
 		x, y := ngram.GenSeq(ngram.GenProb())
 		machines := rmsp.Train(x, &ntm.LogisticModel{Y: y}, 0.95, 0.5, 1e-3, 1e-3)
 
-		if i%10000 == 0 {
+		if i%1000 == 0 {
 			prob := ngram.GenProb()
 			var l float64 = 0
-			samn := 1000
+			samn := 100
 			for j := 0; j < samn; j++ {
 				x, y = ngram.GenSeq(prob)
 				model := &ntm.LogisticModel{Y: y}
@@ -99,9 +102,7 @@ func main() {
 func handleHTTP(c ntm.Controller, losses []float64, doPrint *bool) {
 	select {
 	case cn := <-weightsChan:
-		ws := make([]float64, 0, c.NumWeights())
-		c.Weights(func(u *ntm.Unit) { ws = append(ws, u.Val) })
-		b, err := json.Marshal(ws)
+		b, err := json.Marshal(c.WeightsVal())
 		if err != nil {
 			log.Fatalf("%v", err)
 		}

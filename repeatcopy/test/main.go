@@ -43,10 +43,10 @@ func main() {
 	weightsFromFile(c)
 
 	confs := []RunConf{
-		RunConf{Repeat: 2, SeqLen: 3},
-		RunConf{Repeat: 7, SeqLen: 7},
-		RunConf{Repeat: 15, SeqLen: 10},
-		RunConf{Repeat: 10, SeqLen: 15},
+		{Repeat: 2, SeqLen: 3},
+		{Repeat: 7, SeqLen: 7},
+		{Repeat: 15, SeqLen: 10},
+		{Repeat: 10, SeqLen: 15},
 		//RunConf{Repeat: 15, SeqLen: 15},
 		//RunConf{Repeat: 20, SeqLen: 10},
 		//RunConf{Repeat: 10, SeqLen: 20},
@@ -186,9 +186,8 @@ func weightsFromFile(c ntm.Controller) {
 		log.Fatalf("%v", err)
 	}
 
-	i := 0
-	c.Weights(func(u *ntm.Unit) {
-		u.Val = ws[i]
-		i++
-	})
+	weights := c.WeightsVal()
+	for i, w := range ws {
+		weights[i] = w
+	}
 }

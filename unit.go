@@ -30,15 +30,6 @@ func makeTensorUnit3(n, m, p int) [][][]Unit {
 	return t
 }
 
-// UnitVals returns the values of a slice of Units.
-func UnitVals(units []Unit) []float64 {
-	v := make([]float64, 0, len(units))
-	for _, u := range units {
-		v = append(v, u.Val)
-	}
-	return v
-}
-
 func doUnit1(t []Unit, f func(*Unit)) {
 	for i := range t {
 		f(&t[i])

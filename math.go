@@ -34,20 +34,10 @@ func cosineSimilarity(u, v []float64) float64 {
 	return sum / math.Sqrt(usum*vsum)
 }
 
-// MakeTensor2 makes a 2 dimensional tensor.
-func MakeTensor2(n, m int) [][]float64 {
+func makeTensor2(n, m int) [][]float64 {
 	t := make([][]float64, n)
 	for i := 0; i < len(t); i++ {
 		t[i] = make([]float64, m)
-	}
-	return t
-}
-
-// MakeTensor3 makes a 3 dimensional tensor.
-func MakeTensor3(n, m, p int) [][][]float64 {
-	t := make([][][]float64, n)
-	for i := 0; i < len(t); i++ {
-		t[i] = MakeTensor2(m, p)
 	}
 	return t
 }

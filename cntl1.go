@@ -2,48 +2,123 @@ package ntm
 
 import (
 	"fmt"
+
+	"github.com/gonum/blas"
+	"github.com/gonum/blas/blas64"
 )
 
 type controller1 struct {
-	wtm1s      [][]*betaSimilarity
-	mtm1       *writtenMemory
-	Wh1r       [][][]Unit
-	Wh1x       [][]Unit
-	Wh1b       []Unit
-	Wyh1       [][]Unit
-	Wuh1       [][][]Unit
-	numWeights int
+	weightsVal  []float64
+	weightsGrad []float64
 
-	Reads []*memRead
-	X     []float64
+	Reads     []*memRead
+	X         []float64
+	ReadsXVal blas64.Vector
 
-	H1 []Unit
+	H1Val  []float64
+	H1Grad []float64
 
-	y     []Unit
-	heads []*Head
+	heads   []*Head
+	outVal  []float64
+	outGrad []float64
+
+	numHeads int
+	memoryM  int
+	memoryN  int
+	xSize    int
+	h1Size   int
+	ySize    int
+}
+
+func (c *controller1) wh1Cols() int {
+	return c.numHeads*c.memoryM + c.xSize + 1
+}
+
+func (c *controller1) wyRows() int {
+	return c.ySize + c.numHeads*headUnitsLen(c.memoryM)
+}
+
+func (c *controller1) wyOffset() int {
+	return c.h1Size * c.wh1Cols()
+}
+
+func (c *controller1) wtm1Offset() int {
+	return c.wyOffset() + c.wyRows()*(c.h1Size+1)
+}
+
+func (c *controller1) mtm1Offset() int {
+	return c.wtm1Offset() + c.numHeads*c.memoryN
+}
+
+func (c *controller1) numWeights() int {
+	return c.mtm1Offset() + c.memoryN*c.memoryM
+}
+
+func (c *controller1) wh1(w []float64) blas64.General {
+	m := blas64.General{
+		Rows: c.h1Size,
+		Cols: c.wh1Cols(),
+	}
+	m.Stride = m.Cols
+	m.Data = w[0:c.wyOffset()]
+	return m
+}
+
+func (c *controller1) wh1Val() blas64.General {
+	return c.wh1(c.weightsVal)
+}
+
+func (c *controller1) wh1Grad() blas64.General {
+	return c.wh1(c.weightsGrad)
+}
+
+func (c *controller1) wy(w []float64) blas64.General {
+	m := blas64.General{
+		Rows: c.wyRows(),
+		Cols: c.h1Size + 1,
+	}
+	m.Stride = m.Cols
+	m.Data = w[c.wyOffset():c.wtm1Offset()]
+	return m
+}
+
+func (c *controller1) wyVal() blas64.General {
+	return c.wy(c.weightsVal)
+}
+
+func (c *controller1) wyGrad() blas64.General {
+	return c.wy(c.weightsGrad)
+}
+
+func (c *controller1) Wtm1BiasVal() []float64 {
+	return c.weightsVal[c.wtm1Offset():c.mtm1Offset()]
+}
+
+func (c *controller1) Wtm1BiasGrad() []float64 {
+	return c.weightsGrad[c.wtm1Offset():c.mtm1Offset()]
+}
+
+func (c *controller1) Mtm1BiasVal() []float64 {
+	return c.weightsVal[c.mtm1Offset():]
+}
+
+func (c *controller1) Mtm1BiasGrad() []float64 {
+	return c.weightsGrad[c.mtm1Offset():]
 }
 
 // NewEmptyController1 returns a new controller1 which is a single layer feedforward network.
 // The returned controller1 is empty in that all its network weights are initialized as 0.
 func NewEmptyController1(xSize, ySize, h1Size, numHeads, n, m int) *controller1 {
-	h := NewHead(m)
-	headUnitsSize := len(h.units)
 	c := controller1{
-		wtm1s: make([][]*betaSimilarity, numHeads),
-		mtm1:  &writtenMemory{Top: makeTensorUnit2(n, m)},
-		Wh1r:  makeTensorUnit3(h1Size, numHeads, m),
-		Wh1x:  makeTensorUnit2(h1Size, xSize),
-		Wh1b:  make([]Unit, h1Size),
-		Wyh1:  makeTensorUnit2(ySize, h1Size+1),
-		Wuh1:  makeTensorUnit3(numHeads, headUnitsSize, h1Size+1),
+		numHeads: numHeads,
+		memoryM:  m,
+		memoryN:  n,
+		xSize:    xSize,
+		h1Size:   h1Size,
+		ySize:    ySize,
 	}
-	for i := range c.wtm1s {
-		c.wtm1s[i] = make([]*betaSimilarity, n)
-		for j := range c.wtm1s[i] {
-			c.wtm1s[i][j] = &betaSimilarity{}
-		}
-	}
-	c.numWeights = numHeads*n + n*m + h1Size*numHeads*m + h1Size*xSize + h1Size + ySize*(h1Size+1) + numHeads*headUnitsSize*(h1Size+1)
+	c.weightsVal = make([]float64, c.numWeights())
+	c.weightsGrad = make([]float64, c.numWeights())
 	return &c
 }
 
@@ -51,196 +126,120 @@ func (c *controller1) Heads() []*Head {
 	return c.heads
 }
 
-func (c *controller1) Y() []Unit {
-	return c.y
+func (c *controller1) YVal() []float64 {
+	return c.outVal[0:c.ySize]
+}
+
+func (c *controller1) YGrad() []float64 {
+	return c.outGrad[0:c.ySize]
 }
 
 func (old *controller1) Forward(reads []*memRead, x []float64) Controller {
 	c := controller1{
-		Wh1r:       old.Wh1r,
-		Wh1x:       old.Wh1x,
-		Wh1b:       old.Wh1b,
-		Wyh1:       old.Wyh1,
-		Wuh1:       old.Wuh1,
-		numWeights: old.numWeights,
-		Reads:      reads,
-		X:          x,
-		H1:         make([]Unit, len(old.Wh1r)),
-		y:          make([]Unit, len(old.Wyh1)),
-		heads:      make([]*Head, len(reads)),
+		weightsVal:  old.weightsVal,
+		weightsGrad: old.weightsGrad,
+		Reads:       reads,
+		X:           x,
+		H1Val:       make([]float64, old.h1Size+1),
+		H1Grad:      make([]float64, old.h1Size+1),
+		heads:       make([]*Head, len(reads)),
+		outVal:      make([]float64, old.wyRows()),
+		outGrad:     make([]float64, old.wyRows()),
+
+		numHeads: old.numHeads,
+		memoryM:  old.memoryM,
+		memoryN:  old.memoryN,
+		xSize:    old.xSize,
+		h1Size:   old.h1Size,
+		ySize:    old.ySize,
 	}
 
-	var v float64
-	for i, wh1ri := range c.Wh1r {
-		wh1xi := c.Wh1x[i]
-		v = 0
-		for j, wh1rij := range wh1ri {
-			read := reads[j]
-			for k, wh1rijk := range wh1rij {
-				v += wh1rijk.Val * read.Top[k].Val
-			}
-		}
-		for j, wh1xij := range wh1xi {
-			v += wh1xij.Val * x[j]
-		}
-		v += c.Wh1b[i].Val
-		c.H1[i].Val = Sigmoid(v)
+	ud := make([]float64, c.wh1Cols())
+	for i, read := range reads {
+		copy(ud[i*c.memoryM:], read.TopVal)
+	}
+	copy(ud[c.numHeads*c.memoryM:], c.X)
+	ud[c.numHeads*c.memoryM+c.xSize] = 1
+	c.ReadsXVal = blas64.Vector{Inc: 1, Data: ud}
+
+	h1 := blas64.Vector{Inc: 1, Data: c.H1Val[0:c.h1Size]}
+	blas64.Gemv(blas.NoTrans, 1, c.wh1Val(), c.ReadsXVal, 1, h1)
+	for i, h := range c.H1Val[0:c.h1Size] {
+		c.H1Val[i] = Sigmoid(h)
 	}
 
-	for i, wyh1i := range c.Wyh1 {
-		v = 0
-		for j, wyh1ij := range wyh1i[0:len(c.H1)] {
-			v += wyh1ij.Val * c.H1[j].Val
-		}
-		v += c.Wyh1[i][len(c.H1)].Val
-		c.y[i].Val = v
-	}
-	memoryM := len(reads[0].Top)
-	for i, wuh1i := range c.Wuh1 {
-		c.heads[i] = NewHead(memoryM)
-		head := c.heads[i]
-		for j, wuh1ij := range wuh1i {
-			v = 0
-			for k, wuh1ijk := range wuh1ij[0:len(c.H1)] {
-				v += wuh1ijk.Val * c.H1[k].Val
-			}
-			v += wuh1ij[len(c.H1)].Val
-			head.units[j].Val += v
-		}
+	c.H1Val[c.h1Size] = 1
+	h1 = blas64.Vector{Inc: 1, Data: c.H1Val}
+	outV := blas64.Vector{Inc: 1, Data: c.outVal}
+	blas64.Gemv(blas.NoTrans, 1, c.wyVal(), h1, 1, outV)
+
+	hul := headUnitsLen(c.memoryM)
+	for i := range c.heads {
+		head := NewHead(c.memoryM)
+		c.heads[i] = head
+		start := c.ySize + i*hul
+		head.vals = c.outVal[start : start+hul]
+		head.grads = c.outGrad[start : start+hul]
 	}
 
 	return &c
 }
 
 func (c *controller1) Backward() {
-	for j, y := range c.y {
-		for i, wyh1 := range c.Wyh1[j][0:len(c.H1)] {
-			c.H1[i].Grad += wyh1.Val * y.Grad
-		}
-	}
-	for j, head := range c.heads {
-		wuh1j := c.Wuh1[j]
-		for k, h := range head.units {
-			for i, wuh1jki := range wuh1j[k][0:len(c.H1)] {
-				c.H1[i].Grad += h.Grad * wuh1jki.Val
-			}
-		}
-	}
-	for i, wyh1i := range c.Wyh1 {
-		yGrad := c.y[i].Grad
-		for j, h1 := range c.H1 {
-			wyh1i[j].Grad += yGrad * h1.Val
-		}
-		wyh1i[len(wyh1i)-1].Grad += yGrad
-	}
-	for i, wuh1i := range c.Wuh1 {
-		for j, head := range c.heads[i].units {
-			wuh1ij := wuh1i[j]
-			for k, h1 := range c.H1 {
-				wuh1ij[k].Grad += head.Grad * h1.Val
-			}
-			wuh1ij[len(wuh1ij)-1].Grad += head.Grad
-		}
+	out := blas64.Vector{Inc: 1, Data: c.outGrad}
+	h1Val := blas64.Vector{Inc: 1, Data: c.H1Val}
+	h1Grad := blas64.Vector{Inc: 1, Data: c.H1Grad}
+	blas64.Gemv(blas.Trans, 1, c.wyVal(), out, 1, h1Grad)
+	blas64.Ger(1, out, h1Val, c.wyGrad())
+
+	h1Val = blas64.Vector{Inc: 1, Data: c.H1Val[0:c.h1Size]}
+	h1Grad = blas64.Vector{Inc: 1, Data: c.H1Grad[0:c.h1Size]}
+	for i, v := range h1Val.Data {
+		h1Grad.Data[i] *= v * (1 - v)
 	}
 
-	h1Grads := make([]float64, len(c.H1))
-	for i, h1 := range c.H1 {
-		h1Grads[i] = h1.Grad * h1.Val * (1 - h1.Val)
-	}
+	u := blas64.Vector{Inc: 1, Data: make([]float64, c.wh1Cols())}
+	blas64.Gemv(blas.Trans, 1, c.wh1Val(), h1Grad, 1, u)
+	blas64.Ger(1, h1Grad, c.ReadsXVal, c.wh1Grad())
 
-	for k, h1g := range h1Grads {
-		wh1rk := c.Wh1r[k]
-		for i, read := range c.Reads {
-			wh1rki := wh1rk[i]
-			for j, wh1rkij := range wh1rki {
-				read.Top[j].Grad += h1g * wh1rkij.Val
-			}
-		}
-	}
-	for i, wh1ri := range c.Wh1r {
-		h1g := h1Grads[i]
-		for j, wh1rij := range wh1ri {
-			for k, read := range c.Reads[j].Top {
-				wh1rij[k].Grad += h1g * read.Val
-			}
-		}
-	}
-	for i, wh1xi := range c.Wh1x {
-		h1g := h1Grads[i]
-		for j, x := range c.X {
-			wh1xi[j].Grad += h1g * x
-		}
-	}
-	for i, h1g := range h1Grads {
-		c.Wh1b[i].Grad += h1g
+	for i, read := range c.Reads {
+		copy(read.TopGrad, u.Data[i*c.memoryM:(i+1)*c.memoryM])
 	}
 }
 
-func (c *controller1) Wtm1BiasV() [][]*betaSimilarity {
-	return c.wtm1s
+func (c *controller1) WeightsVal() []float64 {
+	return c.weightsVal
 }
 
-func (c *controller1) Mtm1BiasV() *writtenMemory {
-	return c.mtm1
+func (c *controller1) WeightsGrad() []float64 {
+	return c.weightsGrad
 }
 
-func (c *controller1) Weights(f func(*Unit)) {
-	for _, wtm1 := range c.wtm1s {
-		for _, w := range wtm1 {
-			f(&w.Top)
-		}
+func (c *controller1) WeightsDesc(i int) string {
+	if i < c.wyOffset() {
+		return fmt.Sprintf("wh1[%d][%d]", i/c.wh1Cols(), i%c.wh1Cols())
 	}
-	for _, row := range c.mtm1.Top {
-		for i := range row {
-			f(&row[i])
-		}
+	if i < c.wtm1Offset() {
+		j := i - c.wyOffset()
+		cols := c.h1Size + 1
+		return fmt.Sprintf("wy[%d][%d]", j/cols, i%cols)
 	}
-	doUnit2(c.Wyh1, func(u *Unit) { f(u) })
-	doUnit3(c.Wuh1, func(u *Unit) { f(u) })
-	doUnit3(c.Wh1r, func(u *Unit) { f(u) })
-	doUnit2(c.Wh1x, func(u *Unit) { f(u) })
-	doUnit1(c.Wh1b, func(u *Unit) { f(u) })
-}
-
-// WeightsVerbose is similar to Weights, but with additional information passed in.
-// Avoid using this function except for debugging, as it calls fmt.Sprintf many times which is a performance hog.
-func (c *controller1) WeightsVerbose(f func(string, *Unit)) {
-	for i, wtm1 := range c.wtm1s {
-		for j, w := range wtm1 {
-			f(fmt.Sprintf("wtm1[%d][%d]", i, j), &w.Top)
-		}
+	if i < c.mtm1Offset() {
+		j := i - c.wtm1Offset()
+		return fmt.Sprintf("wtm1[%d][%d]", j/c.memoryN, j%c.memoryN)
 	}
-	for i, row := range c.mtm1.Top {
-		for j := range row {
-			f(fmt.Sprintf("mtm1[%d][%d]", i, j), &row[j])
-		}
-	}
-	tagify := func(tag string, ids []int) string {
-		s := tag
-		for i := len(ids) - 1; i >= 0; i-- {
-			s = fmt.Sprintf("%s[%d]", s, ids[i])
-		}
-		return s
-	}
-	doUnit2Indices(c.Wyh1, func(ids []int, u *Unit) { f(tagify("Wyh1", ids), u) })
-	doUnit3Indices(c.Wuh1, func(ids []int, u *Unit) { f(tagify("Wuh1", ids), u) })
-	doUnit3Indices(c.Wh1r, func(ids []int, u *Unit) { f(tagify("Wh1r", ids), u) })
-	doUnit2Indices(c.Wh1x, func(ids []int, u *Unit) { f(tagify("Wh1x", ids), u) })
-	doUnit1Indices(c.Wh1b, func(ids []int, u *Unit) { f(tagify("Wh1b", ids), u) })
-}
-
-func (c *controller1) NumWeights() int {
-	return c.numWeights
+	j := i - c.mtm1Offset()
+	return fmt.Sprintf("mtm1[%d][%d]", j/c.memoryM, j%c.memoryM)
 }
 
 func (c *controller1) NumHeads() int {
-	return len(c.Wuh1)
+	return c.numHeads
 }
 
 func (c *controller1) MemoryN() int {
-	return len(c.mtm1.Top)
+	return c.memoryN
 }
 
 func (c *controller1) MemoryM() int {
-	return len(c.Wh1r[0][0])
+	return c.memoryM
 }
