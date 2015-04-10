@@ -186,9 +186,8 @@ func weightsFromFile(c ntm.Controller) {
 		log.Fatalf("%v", err)
 	}
 
-	i := 0
-	c.Weights(func(u *ntm.Unit) {
-		u.Val = ws[i]
-		i++
-	})
+	weights := c.WeightsVal()
+	for i, w := range ws {
+		weights[i] = w
+	}
 }

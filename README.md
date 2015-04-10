@@ -16,7 +16,7 @@ To print debug information about the training process, run `curl http://localhos
 To track the cross-entropy loss during the training process, run `curl http://localhost:8088/Loss`.
 To save the trained weights to disk, run `curl http://localhost:8088/Weights > weights`.
 #### Testing
-To test the saved weights in the previous training step, run `go run copytask/test/main.go -weightsFile=weights`. Alternatively, you can also specify one of the successfully trained weights in the copytask/test folder such as the file copytask/test/seed11_28000.
+To test the saved weights in the previous training step, run `go run copytask/test/main.go -weightsFile=weights`. Alternatively, you can also specify one of the successfully trained weights in the copytask/test folder such as the file `copytask/test/seed2_19000`.
 Upon running the above command, a web server would be started which can be accessed at http://localhost:9000/.
 Below are screenshots of the web page showing the testing results for a test case of length 20.
 The first figure shows the input, output, and predictions of the NTM, and the second figure shows the addressing weights of the memory head.

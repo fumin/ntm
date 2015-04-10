@@ -47,7 +47,7 @@ func main() {
 	http.HandleFunc("/PrintDebug", func(w http.ResponseWriter, r *http.Request) {
 		printDebugChan <- struct{}{}
 	})
-	port := 8088
+	port := 8082
 	go func() {
 		log.Printf("Listening on port %d", port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
@@ -55,7 +55,7 @@ func main() {
 		}
 	}()
 
-	var seed int64 = 8
+	var seed int64 = 2
 	rand.Seed(seed)
 	log.Printf("seed: %d", seed)
 
@@ -65,7 +65,10 @@ func main() {
 	n := 128
 	m := 20
 	c := ntm.NewEmptyController1(vectorSize+2, vectorSize, h1Size, numHeads, n, m)
-	c.Weights(func(u *ntm.Unit) { u.Val = 1 * (rand.Float64() - 0.5) })
+	weights := c.WeightsVal()
+	for i := range weights {
+		weights[i] = 1 * (rand.Float64() - 0.5)
+	}
 
 	losses := make([]float64, 0)
 	doPrint := false
@@ -96,9 +99,7 @@ func main() {
 func handleHTTP(c ntm.Controller, losses []float64, doPrint *bool) {
 	select {
 	case cn := <-weightsChan:
-		ws := make([]float64, 0, c.NumWeights())
-		c.Weights(func(u *ntm.Unit) { ws = append(ws, u.Val) })
-		b, err := json.Marshal(ws)
+		b, err := json.Marshal(c.WeightsVal())
 		if err != nil {
 			log.Fatalf("%v", err)
 		}
@@ -122,10 +123,10 @@ func printDebug(y [][]float64, machines []*ntm.NTM) {
 	outputT := 0
 	for t := outputT; t < len(machines); t++ {
 		h := machines[t].Controller.Heads()[0]
-		beta := math.Exp(h.Beta().Val)
-		g := ntm.Sigmoid(h.G().Val)
-		shift := math.Mod(2*ntm.Sigmoid(h.S().Val)-1+float64(n), float64(n))
-		gamma := math.Log(math.Exp(h.Gamma().Val)+1) + 1
-		log.Printf("beta: %.3g(%v), g: %.3g(%v), s: %.3g(%v), gamma: %.3g(%v), erase: %+v, add: %+v, k: %+v", beta, h.Beta(), g, h.G(), shift, h.S(), gamma, h.Gamma(), h.EraseVector(), h.AddVector(), h.K())
+		beta := math.Exp(*h.BetaVal())
+		g := ntm.Sigmoid(*h.GVal())
+		shift := math.Mod(2*ntm.Sigmoid(*h.SVal())-1+float64(n), float64(n))
+		gamma := math.Log(math.Exp(*h.GammaVal())+1) + 1
+		log.Printf("beta: %.3g(%v), g: %.3g(%v), s: %.3g(%v), gamma: %.3g(%v), erase: %+v, add: %+v, k: %+v", beta, *h.BetaVal(), g, *h.GVal(), shift, *h.SVal(), gamma, *h.GammaVal(), h.EraseVal(), h.AddVal(), h.KVal())
 	}
 }

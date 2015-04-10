@@ -9,58 +9,93 @@ package ntm
 
 import (
 	"math"
+
+	"github.com/gonum/blas/blas64"
 )
 
 // A Head is a read write head on a memory bank.
-// It carriess every information that is required to operate on a memory bank according to the NTM architecture..
+// It carriess information that is required to operate on a memory bank according to the NTM architecture.
 type Head struct {
-	units []Unit
-	Wtm1  *refocus // the weights at time t-1
-	M     int      // size of a row in the memory
+	vals  []float64
+	grads []float64
+
+	Wtm1 *refocus // the weights at time t-1
+	M    int      // size of a row in the memory
 }
 
 // NewHead creates a new memory head.
 func NewHead(m int) *Head {
 	h := Head{
-		units: make([]Unit, 3*m+4),
-		M:     m,
+		M: m,
 	}
 	return &h
 }
 
 // EraseVector returns the erase vector of a memory head.
-func (h *Head) EraseVector() []Unit {
-	return h.units[0:h.M]
+func (h *Head) EraseVal() []float64 {
+	return h.vals[0:h.M]
+}
+
+func (h *Head) EraseGrad() []float64 {
+	return h.grads[0:h.M]
 }
 
 // AddVector returns the add vector of a memory head.
-func (h *Head) AddVector() []Unit {
-	return h.units[h.M : 2*h.M]
+func (h *Head) AddVal() []float64 {
+	return h.vals[h.M : 2*h.M]
+}
+
+func (h *Head) AddGrad() []float64 {
+	return h.grads[h.M : 2*h.M]
 }
 
 // K returns a head's key vector, which is the target data in the content addressing step.
-func (h *Head) K() []Unit {
-	return h.units[2*h.M : 3*h.M]
+func (h *Head) KVal() []float64 {
+	return h.vals[2*h.M : 3*h.M]
+}
+
+func (h *Head) KGrad() []float64 {
+	return h.grads[2*h.M : 3*h.M]
 }
 
 // Beta returns the key strength of a content addressing step.
-func (h *Head) Beta() *Unit {
-	return &h.units[3*h.M]
+func (h *Head) BetaVal() *float64 {
+	return &h.vals[3*h.M]
+}
+
+func (h *Head) BetaGrad() *float64 {
+	return &h.grads[3*h.M]
 }
 
 // G returns the degree in which we want to choose content-addressing over location-based-addressing.
-func (h *Head) G() *Unit {
-	return &h.units[3*h.M+1]
+func (h *Head) GVal() *float64 {
+	return &h.vals[3*h.M+1]
+}
+
+func (h *Head) GGrad() *float64 {
+	return &h.grads[3*h.M+1]
 }
 
 // S returns a value indicating how much the weightings are rotated in a location-based-addressing step.
-func (h *Head) S() *Unit {
-	return &h.units[3*h.M+2]
+func (h *Head) SVal() *float64 {
+	return &h.vals[3*h.M+2]
+}
+
+func (h *Head) SGrad() *float64 {
+	return &h.grads[3*h.M+2]
 }
 
 // Gamma returns the degree in which the addressing weights are sharpened.
-func (h *Head) Gamma() *Unit {
-	return &h.units[3*h.M+3]
+func (h *Head) GammaVal() *float64 {
+	return &h.vals[3*h.M+3]
+}
+
+func (h *Head) GammaGrad() *float64 {
+	return &h.grads[3*h.M+3]
+}
+
+func headUnitsLen(m int) int {
+	return 3*m + 4
 }
 
 // The Controller interface is implemented by NTM controller networks that wish to operate with memory banks in a NTM.
@@ -68,7 +103,8 @@ type Controller interface {
 	// Heads returns the emitted memory heads.
 	Heads() []*Head
 	// Y returns the output of the Controller.
-	Y() []Unit
+	YVal() []float64
+	YGrad() []float64
 
 	// Forward creates a new Controller which shares the same internal weights,
 	// and performs a forward pass whose results can be retrived by Heads and Y.
@@ -77,15 +113,22 @@ type Controller interface {
 	// assuming the gradients on Heads and Y are already set.
 	Backward()
 
-	// Wtm1BiasV returns the bias values for the memory heads at time t-1.
-	Wtm1BiasV() [][]*betaSimilarity
-	// Mtm1BiasV returns the bias values for the memory at time t-1.
-	Mtm1BiasV() *writtenMemory
+	// Wtm1BiasVal returns the values of the bias of the previous weight.
+	// The layout is |-- 1st head weights (size memoryN) --|-- 2nd head --|-- ... --|
+	// The length of the returned slice is numHeads * memoryN.
+	Wtm1BiasVal() []float64
+	Wtm1BiasGrad() []float64
 
-	// Weights loops through all internal weights of a controller.
-	// For each weight, Weights calls the callback with a unique tag and a pointer to the weight.
-	Weights(f func(*Unit))
-	WeightsVerbose(f func(string, *Unit))
+	// M1mt1BiasVal returns the values of the bias of the memory bank.
+	// The returned matrix is in column major order.
+	Mtm1BiasVal() []float64
+	Mtm1BiasGrad() []float64
+
+	// WeightsVal return the values of all weights.
+	WeightsVal() []float64
+	WeightsGrad() []float64
+	// WeightsDesc return the descriptions of a weight.
+	WeightsDesc(i int) string
 
 	NumWeights() int
 	NumHeads() int
@@ -118,6 +161,11 @@ func (m *NTM) backward() {
 
 // ForwardBackward computes a controller's prediction and gradients with respect to the given ground truth input and output values.
 func ForwardBackward(c Controller, in [][]float64, out DensityModel) []*NTM {
+	weights := c.WeightsGrad()
+	for i := range weights {
+		weights[i] = 0
+	}
+
 	// Set the empty NTM's memory and head weights to their bias values.
 	empty, reads, cas := MakeEmptyNTM(c)
 	machines := make([]*NTM, len(in))
@@ -127,20 +175,27 @@ func ForwardBackward(c Controller, in [][]float64, out DensityModel) []*NTM {
 	for t := 1; t < len(in); t++ {
 		machines[t] = NewNTM(machines[t-1], in[t])
 	}
-	c.Weights(func(u *Unit) { u.Grad = 0 })
 	for t := len(in) - 1; t >= 0; t-- {
 		m := machines[t]
-		out.Model(t, m.Controller.Y())
+		out.Model(t, m.Controller.YVal(), m.Controller.YGrad())
 		m.backward()
 	}
 
 	// Compute gradients for the bias values of the initial memory and weights.
 	for i := range reads {
 		reads[i].Backward()
-		for j := range reads[i].W.Top {
-			cas[i].Top[j].Grad += reads[i].W.Top[j].Grad
+		for j := range reads[i].W.TopGrad {
+			cas[i].Top[j].Grad += reads[i].W.TopGrad[j]
 		}
 		cas[i].Backward()
+	}
+
+	// Copy gradients to the controller.
+	cwtm1 := c.Wtm1BiasGrad()
+	for i := range cas {
+		for j, bs := range cas[i].Units {
+			cwtm1[i*c.MemoryN()+j] = bs.Top.Grad
+		}
 	}
 
 	return machines
@@ -148,21 +203,40 @@ func ForwardBackward(c Controller, in [][]float64, out DensityModel) []*NTM {
 
 // MakeEmptyNTM makes a NTM with its memory and head weights set to their bias values, based on the controller.
 func MakeEmptyNTM(c Controller) (*NTM, []*memRead, []*contentAddressing) {
+	cwtm1 := c.Wtm1BiasVal()
+	unws := make([][]*betaSimilarity, c.NumHeads())
+	for i := range unws {
+		unws[i] = make([]*betaSimilarity, c.MemoryN())
+		for j := range unws[i] {
+			v := cwtm1[i*c.MemoryN()+j]
+			unws[i][j] = &betaSimilarity{Top: Unit{Val: v}}
+		}
+	}
+
+	mtm1 := &writtenMemory{
+		N:       c.MemoryN(),
+		TopVal:  c.Mtm1BiasVal(),
+		TopGrad: c.Mtm1BiasGrad(),
+	}
+
 	wtm1s := make([]*refocus, c.NumHeads())
 	reads := make([]*memRead, c.NumHeads())
 	cas := make([]*contentAddressing, c.NumHeads())
 	for i := range reads {
-		cas[i] = newContentAddressing(c.Wtm1BiasV()[i])
-		wtm1s[i] = &refocus{Top: make([]Unit, c.MemoryN())}
-		for j := range wtm1s[i].Top {
-			wtm1s[i].Top[j].Val = cas[i].Top[j].Val
+		cas[i] = newContentAddressing(unws[i])
+		wtm1s[i] = &refocus{
+			TopVal:  make([]float64, c.MemoryN()),
+			TopGrad: make([]float64, c.MemoryN()),
 		}
-		reads[i] = newMemRead(wtm1s[i], c.Mtm1BiasV())
+		for j := range wtm1s[i].TopVal {
+			wtm1s[i].TopVal[j] = cas[i].Top[j].Val
+		}
+		reads[i] = newMemRead(wtm1s[i], mtm1)
 	}
 
 	empty := &NTM{
 		Controller: c,
-		memOp:      &memOp{W: wtm1s, R: reads, WM: c.Mtm1BiasV()},
+		memOp:      &memOp{W: wtm1s, R: reads, WM: mtm1},
 	}
 
 	return empty, reads, cas
@@ -172,8 +246,7 @@ func MakeEmptyNTM(c Controller) (*NTM, []*memRead, []*contentAddressing) {
 func Predictions(machines []*NTM) [][]float64 {
 	pdts := make([][]float64, len(machines))
 	for t := range pdts {
-		y := machines[t].Controller.Y()
-		pdts[t] = UnitVals(y)
+		pdts[t] = machines[t].Controller.YVal()
 	}
 	return pdts
 }
@@ -186,9 +259,9 @@ func HeadWeights(machines []*NTM) [][][]float64 {
 	for i := range hws {
 		hws[i] = make([][]float64, len(machines))
 		for t, m := range machines {
-			hws[i][t] = make([]float64, len(m.memOp.W[i].Top))
-			for j, w := range m.memOp.W[i].Top {
-				hws[i][t][j] = w.Val
+			hws[i][t] = make([]float64, len(m.memOp.W[i].TopVal))
+			for j, w := range m.memOp.W[i].TopVal {
+				hws[i][t][j] = w
 			}
 		}
 	}
@@ -211,13 +284,13 @@ func NewSGDMomentum(c Controller) *SGDMomentum {
 
 func (s *SGDMomentum) Train(x [][]float64, y DensityModel, alpha, mt float64) []*NTM {
 	machines := ForwardBackward(s.C, x, y)
-	i := 0
-	s.C.Weights(func(w *Unit) {
-		d := -alpha*w.Grad + mt*s.PrevD[i]
-		w.Val += d
+
+	weights := s.C.WeightsVal()
+	for i, grad := range s.C.WeightsGrad() {
+		d := -alpha*grad + mt*s.PrevD[i]
+		weights[i] += d
 		s.PrevD[i] = d
-		i++
-	})
+	}
 	return machines
 }
 
@@ -242,27 +315,41 @@ func NewRMSProp(c Controller) *RMSProp {
 
 func (r *RMSProp) Train(x [][]float64, y DensityModel, a, b, c, d float64) []*NTM {
 	machines := ForwardBackward(r.C, x, y)
-	i := 0
-	r.C.Weights(func(w *Unit) {
-		rN := a*r.N[i] + (1-a)*w.Grad*w.Grad
-		r.N[i] = rN
-
-		rG := a*r.G[i] + (1-a)*w.Grad
-		r.G[i] = rG
-
-		rD := b*r.D[i] - c*w.Grad/math.Sqrt(rN-rG*rG+d)
-		r.D[i] = rD
-
-		w.Val += rD
-		i++
-	})
+	r.update(a, b, c, d)
 	return machines
+}
+
+func (r *RMSProp) update(a, b, c, d float64) {
+	grad := blas64.Vector{Inc: 1, Data: r.C.WeightsGrad()}
+	grad2 := blas64.Vector{Inc: 1, Data: make([]float64, len(grad.Data))}
+	for i, w := range grad.Data {
+		grad2.Data[i] = w * w
+	}
+
+	n := blas64.Vector{Inc: 1, Data: r.N}
+	blas64.Scal(len(n.Data), a, n)
+	blas64.Axpy(len(n.Data), 1-a, grad2, n)
+
+	g := blas64.Vector{Inc: 1, Data: r.G}
+	blas64.Scal(len(g.Data), a, g)
+	blas64.Axpy(len(g.Data), 1-a, grad, g)
+
+	rms := blas64.Vector{Inc: 1, Data: make([]float64, len(r.D))}
+	for i, g := range r.G {
+		rms.Data[i] = grad.Data[i] / math.Sqrt(r.N[i]-g*g+d)
+	}
+	rD := blas64.Vector{Inc: 1, Data: r.D}
+	blas64.Scal(len(rD.Data), b, rD)
+	blas64.Axpy(len(rD.Data), -c, rms, rD)
+
+	val := blas64.Vector{Inc: 1, Data: r.C.WeightsVal()}
+	blas64.Axpy(len(rD.Data), 1, rD, val)
 }
 
 // An DensityModel is a model of how the last layer of a network gets transformed into the final output.
 type DensityModel interface {
 	// Model sets the value and gradient of Units of the output layer.
-	Model(t int, yH []Unit)
+	Model(t int, yHVal []float64, yHGrad []float64)
 	// Loss is the loss definition of this model.
 	Loss(output [][]float64) float64
 }
@@ -274,12 +361,12 @@ type LogisticModel struct {
 }
 
 // Model sets the values and gradients of the output units.
-func (m *LogisticModel) Model(t int, yHs []Unit) {
+func (m *LogisticModel) Model(t int, yHVal []float64, yHGrad []float64) {
 	ys := m.Y[t]
-	for i, yh := range yHs {
-		u := Unit{Val: Sigmoid(yh.Val)}
-		u.Grad = u.Val - ys[i]
-		yHs[i] = u
+	for i, yhv := range yHVal {
+		newYhv := Sigmoid(yhv)
+		yHVal[i] = newYhv
+		yHGrad[i] = newYhv - ys[i]
 	}
 }
 
@@ -303,19 +390,19 @@ type MultinomialModel struct {
 }
 
 // Model sets the values and gradients of the output units.
-func (m *MultinomialModel) Model(t int, yHs []Unit) {
+func (m *MultinomialModel) Model(t int, yHVal []float64, yHGrad []float64) {
 	var sum float64 = 0
-	for i, yh := range yHs {
-		v := math.Exp(yh.Val)
-		yHs[i].Val = v
+	for i, yhv := range yHVal {
+		v := math.Exp(yhv)
+		yHVal[i] = v
 		sum += v
 	}
 
 	k := m.Y[t]
-	for i, yh := range yHs {
-		u := Unit{Val: yh.Val / sum}
-		u.Grad = u.Val - delta(i, k)
-		yHs[i] = u
+	for i, yhv := range yHVal {
+		newYhv := yhv / sum
+		yHVal[i] = newYhv
+		yHGrad[i] = newYhv - delta(i, k)
 	}
 }
 

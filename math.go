@@ -22,6 +22,12 @@ func delta(a, b int) float64 {
 	return 0
 }
 
+func Mul(dst, s []float64) {
+	for i, val := range s {
+		dst[i] *= val
+	}
+}
+
 func cosineSimilarity(u, v []float64) float64 {
 	var sum float64 = 0
 	var usum float64 = 0
