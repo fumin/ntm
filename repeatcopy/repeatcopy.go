@@ -15,7 +15,7 @@ var (
 	}
 )
 
-// binary on time
+// GenSeqBT: binary on time
 func GenSeqBT(repeat, seqlen int) ([][]float64, [][]float64) {
 	data := randData(seqlen)
 	vectorSize := len(data[0])
@@ -74,7 +74,7 @@ func GenSeqBT(repeat, seqlen int) ([][]float64, [][]float64) {
 	return input, output
 }
 
-// linear on time
+// GenSeqLT: linear on time
 func GenSeqLT(repeat, seqlen int) ([][]float64, [][]float64) {
 	data := randData(seqlen)
 	vectorSize := len(data[0])
