@@ -31,7 +31,7 @@ func NewHead(m int) *Head {
 	return &h
 }
 
-// EraseVector returns the erase vector of a memory head.
+// EraseVal returns the erase vector of a memory head.
 func (h *Head) EraseVal() []float64 {
 	return h.vals[0:h.M]
 }
@@ -40,7 +40,7 @@ func (h *Head) EraseGrad() []float64 {
 	return h.grads[0:h.M]
 }
 
-// AddVector returns the add vector of a memory head.
+// AddVal returns the add vector of a memory head.
 func (h *Head) AddVal() []float64 {
 	return h.vals[h.M : 2*h.M]
 }
@@ -49,7 +49,7 @@ func (h *Head) AddGrad() []float64 {
 	return h.grads[h.M : 2*h.M]
 }
 
-// K returns a head's key vector, which is the target data in the content addressing step.
+// KVal: K returns a head's key vector, which is the target data in the content addressing step.
 func (h *Head) KVal() []float64 {
 	return h.vals[2*h.M : 3*h.M]
 }
@@ -58,7 +58,7 @@ func (h *Head) KGrad() []float64 {
 	return h.grads[2*h.M : 3*h.M]
 }
 
-// Beta returns the key strength of a content addressing step.
+// BetaVal: Beta returns the key strength of a content addressing step.
 func (h *Head) BetaVal() *float64 {
 	return &h.vals[3*h.M]
 }
@@ -67,7 +67,7 @@ func (h *Head) BetaGrad() *float64 {
 	return &h.grads[3*h.M]
 }
 
-// G returns the degree in which we want to choose content-addressing over location-based-addressing.
+// GVal: G returns the degree in which we want to choose content-addressing over location-based-addressing.
 func (h *Head) GVal() *float64 {
 	return &h.vals[3*h.M+1]
 }
@@ -76,7 +76,7 @@ func (h *Head) GGrad() *float64 {
 	return &h.grads[3*h.M+1]
 }
 
-// S returns a value indicating how much the weightings are rotated in a location-based-addressing step.
+// SVal: S returns a value indicating how much the weightings are rotated in a location-based-addressing step.
 func (h *Head) SVal() *float64 {
 	return &h.vals[3*h.M+2]
 }
@@ -85,7 +85,7 @@ func (h *Head) SGrad() *float64 {
 	return &h.grads[3*h.M+2]
 }
 
-// Gamma returns the degree in which the addressing weights are sharpened.
+// GammaVal: Gamma returns the degree in which the addressing weights are sharpened.
 func (h *Head) GammaVal() *float64 {
 	return &h.vals[3*h.M+3]
 }
