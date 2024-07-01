@@ -11,8 +11,8 @@ import (
 	"os"
 	"runtime/pprof"
 
-	"github.com/fumin/ntm"
-	"github.com/fumin/ntm/copytask"
+	"ntm"
+	"ntm/copytask"
 )
 
 var (

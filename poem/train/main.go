@@ -13,8 +13,8 @@ import (
 	"github.com/gonum/blas/blas64"
 	"github.com/gonum/blas/cgo"
 
-	"github.com/fumin/ntm"
-	"github.com/fumin/ntm/poem"
+	"ntm"
+	"ntm/poem"
 )
 
 var (

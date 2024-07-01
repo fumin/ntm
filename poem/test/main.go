@@ -7,8 +7,8 @@ import (
 	"math/rand"
 	"os"
 
-	"github.com/fumin/ntm"
-	"github.com/fumin/ntm/poem"
+	"ntm"
+	"ntm/poem"
 )
 
 var (

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/fumin/ntm"
-	"github.com/fumin/ntm/ngram"
+	"ntm"
+	"ntm/ngram"
 )
 
 var (
